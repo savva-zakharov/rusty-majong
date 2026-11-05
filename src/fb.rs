@@ -165,17 +165,23 @@ impl Fb {
 
     /// Text where anything inside [brackets] is drawn in the key colour.
     pub fn text_keys(&mut self, x: i32, y: i32, s: &str, c: u8, kc: u8) -> i32 {
+        self.text_keys_br(x, y, s, c, kc, DKGREEN)
+    }
+
+    /// Like `text_keys`, with the bracket colour `bc` chosen by the caller
+    /// (e.g. bright on a highlighted button, where dark brackets would vanish).
+    pub fn text_keys_br(&mut self, x: i32, y: i32, s: &str, c: u8, kc: u8, bc: u8) -> i32 {
         let mut cx = x;
         let mut inside = false;
         for ch in s.chars() {
             let col = match ch {
                 '[' => {
                     inside = true;
-                    DKGREEN
+                    bc
                 }
                 ']' => {
                     inside = false;
-                    DKGREEN
+                    bc
                 }
                 _ if inside => kc,
                 _ => c,

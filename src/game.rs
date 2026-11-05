@@ -700,10 +700,10 @@ impl Game {
             if flash {
                 // Pressed: inverse video in the highlight colour.
                 fb.rect(b.text_x - 2, KEYS_Y - 2, w + 4, 11, AMBER);
-                fb.text_keys(b.text_x, KEYS_Y, b.label, BG, BG);
+                fb.text_keys_br(b.text_x, KEYS_Y, b.label, BG, BG, BG);
             } else if self.bar_hover == Some(k) {
                 fb.rect(b.text_x - 2, KEYS_Y - 2, w + 4, 11, DKGREEN);
-                fb.text_keys(b.text_x, KEYS_Y, b.label, GREEN, AMBER);
+                fb.text_keys_br(b.text_x, KEYS_Y, b.label, GREEN, AMBER, GREEN);
             } else {
                 fb.text_keys(b.text_x, KEYS_Y, b.label, DKGREEN, AMBER);
             }
