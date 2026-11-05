@@ -21,6 +21,77 @@ const BOARD_BOT: i32 = H - 28;
 const PROMPT_Y: i32 = H - 25;
 const RULE_Y: i32 = H - 15;
 const KEYS_Y: i32 = H - 10;
+/// Top of the clickable button bar (just below the dashed rule).
+const BAR_TOP: i32 = RULE_Y + 1;
+
+/// Everything the hotkeys do. The bottom bar's buttons trigger the same
+/// actions, so touch screens without a keyboard can reach every option.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+enum Action {
+    Hint,
+    Undo,
+    Shuffle,
+    New,
+    Layout,
+    Tiles,
+    Palette,
+    Dim,
+    Reload,
+    Crt,
+    Quit,
+}
+
+/// Bottom-bar buttons: label (key letters in [brackets]) and action.
+/// QUIT is desktop-only: a browser tab has nothing to quit to.
+fn buttons() -> Vec<(&'static str, Action)> {
+    let mut b = vec![
+        ("[H]INT", Action::Hint),
+        ("[U]NDO", Action::Undo),
+        ("[S]HUFFLE", Action::Shuffle),
+        ("[N]EW", Action::New),
+        ("[L]AYOUT", Action::Layout),
+        ("[T]ILES", Action::Tiles),
+        ("[P]ALETTE", Action::Palette),
+        ("[F] DIM", Action::Dim),
+        ("[R]ELOAD", Action::Reload),
+        ("[C]RT", Action::Crt),
+    ];
+    if !cfg!(target_arch = "wasm32") {
+        b.push(("[ESC] QUIT", Action::Quit));
+    }
+    b
+}
+
+/// One laid-out button: label position plus its (generous) hit area.
+struct Button {
+    label: &'static str,
+    action: Action,
+    text_x: i32,
+    hit: (i32, i32, i32, i32), // x, y, w, h
+}
+
+/// Spread the buttons evenly across the bar. Each hit area spans the full bar
+/// height and reaches halfway to its neighbours, so there are no dead gaps.
+fn layout_buttons() -> Vec<Button> {
+    let b = buttons();
+    let widths: Vec<i32> = b.iter().map(|(l, _)| Fb::text_w(l) - 1).collect();
+    let total: i32 = widths.iter().sum();
+    let n = b.len() as i32;
+    let gap = if n > 1 { (W - 8 - total) / (n - 1) } else { 0 };
+    let mut x = 4;
+    let mut out: Vec<Button> = Vec::with_capacity(b.len());
+    for (k, (label, action)) in b.into_iter().enumerate() {
+        out.push(Button { label, action, text_x: x, hit: (0, BAR_TOP, 0, H - BAR_TOP) });
+        x += widths[k] + gap;
+    }
+    for k in 0..out.len() {
+        let left = if k == 0 { 0 } else { (out[k - 1].text_x + widths[k - 1] + out[k].text_x) / 2 };
+        let right = if k + 1 == out.len() { W } else { (out[k].text_x + widths[k] + out[k + 1].text_x) / 2 };
+        out[k].hit.0 = left;
+        out[k].hit.2 = right - left;
+    }
+    out
+}
 
 #[derive(PartialEq, Clone, Copy)]
 enum State {
@@ -70,6 +141,9 @@ pub struct Game {
     /// Set by `T` (next set) / `R` (reload): the tile set index the main loop
     /// should load asynchronously and hand back through `set_assets`.
     pub asset_request: Option<usize>,
+    bar: Vec<Button>,
+    bar_hover: Option<usize>,
+    bar_flash: Option<(usize, f32)>,
     tile_sets: Vec<String>,
     tile_set: usize,
     scheme: usize,
@@ -104,6 +178,9 @@ impl Game {
             crt: true,
             assets,
             asset_request: None,
+            bar: layout_buttons(),
+            bar_hover: None,
+            bar_flash: None,
             tile_sets,
             tile_set,
             scheme: scheme % SCHEMES.len(),
@@ -290,48 +367,76 @@ impl Game {
             }
         }
 
-        if is_key_pressed(KeyCode::Escape) && !cfg!(target_arch = "wasm32") {
-            return false;
+        let keys: [(&[KeyCode], Action); 11] = [
+            (&[KeyCode::H], Action::Hint),
+            (&[KeyCode::U, KeyCode::Z, KeyCode::Backspace], Action::Undo),
+            (&[KeyCode::S], Action::Shuffle),
+            (&[KeyCode::N], Action::New),
+            (&[KeyCode::L], Action::Layout),
+            (&[KeyCode::T], Action::Tiles),
+            (&[KeyCode::P], Action::Palette),
+            (&[KeyCode::F], Action::Dim),
+            (&[KeyCode::R], Action::Reload),
+            (&[KeyCode::C], Action::Crt),
+            (&[KeyCode::Escape], Action::Quit),
+        ];
+        for (codes, action) in keys {
+            if codes.iter().any(|&k| is_key_pressed(k)) && !self.run(action) {
+                return false;
+            }
         }
-        if is_key_pressed(KeyCode::L) {
-            self.set_layout(self.layout + 1);
+
+        // Bottom bar: hover highlight, and clicks/taps run the button's action.
+        self.bar_hover = self.bar.iter().position(|b| {
+            let (x, y, w, h) = b.hit;
+            mx >= x && mx < x + w && my >= y && my < y + h
+        });
+        if let Some((_, t)) = &mut self.bar_flash {
+            *t -= dt;
         }
-        if is_key_pressed(KeyCode::N) {
-            self.new_game();
+        self.bar_flash = self.bar_flash.filter(|&(_, t)| t > 0.0);
+        if let Some(k) = self.bar_hover {
+            self.hover = None; // the bar is not part of the board
+            if is_mouse_button_pressed(MouseButton::Left) {
+                self.bar_flash = Some((k, 0.15));
+                let action = self.bar[k].action;
+                return self.run(action);
+            }
         }
-        if is_key_pressed(KeyCode::H) {
-            self.show_hint();
-        }
-        if is_key_pressed(KeyCode::U) || is_key_pressed(KeyCode::Z) || is_key_pressed(KeyCode::Backspace) {
-            self.undo();
-        }
-        if is_key_pressed(KeyCode::S) {
-            self.reshuffle();
-        }
-        if is_key_pressed(KeyCode::F) {
-            self.dim = !self.dim;
-            self.say(if self.dim { "BLOCKED TILES DIMMED." } else { "BLOCKED TILES SHOWN NORMALLY." });
-        }
-        if is_key_pressed(KeyCode::R) {
-            self.asset_request = Some(self.tile_set);
-        }
-        if is_key_pressed(KeyCode::T) {
-            self.asset_request = Some((self.tile_set + 1) % self.tile_sets.len().max(1));
-        }
-        if is_key_pressed(KeyCode::P) {
-            self.scheme = (self.scheme + 1) % SCHEMES.len();
-            let s = format!("COLOURS: {}.", SCHEMES[self.scheme].name);
-            self.say(&s);
-        }
-        if is_key_pressed(KeyCode::C) {
-            self.crt = !self.crt;
-            self.say(if self.crt { "CRT SCANLINES ON." } else { "CRT SCANLINES OFF." });
-        }
+
         if is_mouse_button_pressed(MouseButton::Left) && self.state != State::Won {
             self.click(self.hover);
         }
         if is_mouse_button_pressed(MouseButton::Right) {
             self.selected = None;
+        }
+        true
+    }
+
+    /// Perform an action from a hotkey or a bar button. Returns false to quit.
+    fn run(&mut self, action: Action) -> bool {
+        match action {
+            Action::Hint => self.show_hint(),
+            Action::Undo => self.undo(),
+            Action::Shuffle => self.reshuffle(),
+            Action::New => self.new_game(),
+            Action::Layout => self.set_layout(self.layout + 1),
+            Action::Tiles => self.asset_request = Some((self.tile_set + 1) % self.tile_sets.len().max(1)),
+            Action::Palette => {
+                self.scheme = (self.scheme + 1) % SCHEMES.len();
+                let s = format!("COLOURS: {}.", SCHEMES[self.scheme].name);
+                self.say(&s);
+            }
+            Action::Dim => {
+                self.dim = !self.dim;
+                self.say(if self.dim { "BLOCKED TILES DIMMED." } else { "BLOCKED TILES SHOWN NORMALLY." });
+            }
+            Action::Reload => self.asset_request = Some(self.tile_set),
+            Action::Crt => {
+                self.crt = !self.crt;
+                self.say(if self.crt { "CRT SCANLINES ON." } else { "CRT SCANLINES OFF." });
+            }
+            Action::Quit => return cfg!(target_arch = "wasm32"), // no-op in the browser
         }
         true
     }
@@ -589,13 +694,20 @@ impl Game {
         }
 
         dashed(fb, RULE_Y);
-        fb.text_keys(
-            4,
-            KEYS_Y,
-            "[H]INT [U]NDO [S]HUFFLE [N]EW [L]AYOUT [T]ILES [P]ALETTE [F] DIM [R]ELOAD [C]RT [ESC] QUIT",
-            DKGREEN,
-            AMBER,
-        );
+        for (k, b) in self.bar.iter().enumerate() {
+            let w = Fb::text_w(b.label) - 1;
+            let flash = self.bar_flash.map_or(false, |(f, _)| f == k);
+            if flash {
+                // Pressed: inverse video in the highlight colour.
+                fb.rect(b.text_x - 2, KEYS_Y - 2, w + 4, 11, AMBER);
+                fb.text_keys(b.text_x, KEYS_Y, b.label, BG, BG);
+            } else if self.bar_hover == Some(k) {
+                fb.rect(b.text_x - 2, KEYS_Y - 2, w + 4, 11, DKGREEN);
+                fb.text_keys(b.text_x, KEYS_Y, b.label, GREEN, AMBER);
+            } else {
+                fb.text_keys(b.text_x, KEYS_Y, b.label, DKGREEN, AMBER);
+            }
+        }
     }
 }
 
@@ -674,5 +786,27 @@ fn draw_tile(
     if hint {
         fb.outline(x, y, FW, FH, AMBER);
         fb.outline(x + 1, y + 1, FW - 2, FH - 2, AMBER);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bar_buttons_tile_the_bar_without_gaps() {
+        let bar = layout_buttons();
+        assert_eq!(bar.len(), buttons().len());
+        assert_eq!(bar[0].hit.0, 0);
+        assert_eq!(bar.last().map(|b| b.hit.0 + b.hit.2), Some(W));
+        for pair in bar.windows(2) {
+            assert_eq!(pair[0].hit.0 + pair[0].hit.2, pair[1].hit.0, "gap/overlap between {} and {}", pair[0].label, pair[1].label);
+        }
+        for b in &bar {
+            let (x, y, w, h) = b.hit;
+            let tw = Fb::text_w(b.label) - 1;
+            assert!(b.text_x >= x && b.text_x + tw <= x + w, "{} label outside its hit area", b.label);
+            assert!(y == BAR_TOP && y + h == H && KEYS_Y >= y && KEYS_Y + 7 <= H);
+        }
     }
 }

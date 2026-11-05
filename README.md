@@ -59,8 +59,14 @@ solved.
 | `F` | dither-dim blocked tiles |
 | `R` | reload the current tile set's art and the list of sets |
 | `C` | toggle CRT scanlines |
-| `Esc` | quit |
+| `Esc` | quit (desktop only) |
 | right click | deselect |
+
+Every key in the table, except the extra undo keys, is also a button on the bar at the bottom of the
+screen: `[H]INT`, `[L]AYOUT` and so on. Click or tap one to use it, which makes every option
+reachable on a phone or tablet without a keyboard. Each button's hit area is the full height of
+the bar and reaches halfway to its neighbours, to make it easy to tap. The web version leaves out
+`QUIT`.
 
 ## Custom tile art
 
