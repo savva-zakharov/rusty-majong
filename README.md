@@ -29,6 +29,20 @@ server works. In the browser the art loads over HTTP from `dist/assets/`; after 
 the build again, or copy the PNGs into `dist/assets/` and press `R`. `Esc` does nothing on the
 web.
 
+### Embedding in another site
+
+To put the game into another website's folder:
+
+```bash
+bash web/export.sh ../pano-gallery/mahjong
+```
+
+This builds the game and copies `gl.js`, `rusty-majong.wasm` and `assets/` into that folder. The
+folder's `index.html` belongs to the host site, so the script leaves it alone. If there isn't one
+yet, it copies `web/index.html` as a starting point. Run it again after changing the game or its
+art. The page must be served from an address ending in `/`, because the game loads its files by
+relative paths.
+
 ## Playing
 
 Click two free tiles that match to remove them. A tile is free when nothing is on top of it and
