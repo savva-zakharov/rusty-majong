@@ -67,6 +67,8 @@ pub struct Game {
     particles: Vec<Particle>,
     pub crt: bool,
     assets: Assets,
+    /// Set by `R`; main loop reloads asynchronously and calls `set_assets`.
+    pub reload_requested: bool,
     dim: bool,
     elapsed: f32,
     t: f32,
@@ -78,7 +80,7 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(layout: usize) -> Self {
+    pub fn new(layout: usize, assets: Assets) -> Self {
         let mut g = Game {
             layout: 0,
             pos: vec![],
@@ -96,7 +98,8 @@ impl Game {
             ghosts: vec![],
             particles: vec![],
             crt: true,
-            assets: Assets::load(&assets_dir()),
+            assets,
+            reload_requested: false,
             dim: false,
             elapsed: 0.0,
             t: 0.0,
@@ -108,6 +111,13 @@ impl Game {
         };
         g.set_layout(layout);
         g
+    }
+
+    pub fn set_assets(&mut self, assets: Assets) {
+        self.assets = assets;
+        self.reload_requested = false;
+        let s = format!("RELOAD: {}", self.assets.status);
+        self.say(&s);
     }
 
     /// Switch to layout `idx` (wrapping) and deal a fresh board on it.
@@ -261,7 +271,7 @@ impl Game {
             }
         }
 
-        if is_key_pressed(KeyCode::Escape) {
+        if is_key_pressed(KeyCode::Escape) && !cfg!(target_arch = "wasm32") {
             return false;
         }
         if is_key_pressed(KeyCode::L) {
@@ -284,9 +294,7 @@ impl Game {
             self.say(if self.dim { "BLOCKED TILES DIMMED." } else { "BLOCKED TILES SHOWN NORMALLY." });
         }
         if is_key_pressed(KeyCode::R) {
-            self.assets = Assets::load(&assets_dir());
-            let s = format!("RELOAD: {}", self.assets.status);
-            self.say(&s);
+            self.reload_requested = true;
         }
         if is_key_pressed(KeyCode::C) {
             self.crt = !self.crt;
@@ -559,17 +567,18 @@ impl Game {
     }
 }
 
-/// `assets/` next to the working directory, or next to the executable.
-pub fn assets_dir() -> std::path::PathBuf {
-    let cwd = std::path::PathBuf::from("assets");
-    if cwd.is_dir() {
-        return cwd;
+/// Where to load art from. On the web: `assets/` next to index.html.
+/// On desktop: `assets/` in the working directory, else next to the executable.
+pub fn assets_dir() -> String {
+    if cfg!(target_arch = "wasm32") || std::path::Path::new("assets").is_dir() {
+        return "assets".into();
     }
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("assets")))
         .filter(|d| d.is_dir())
-        .unwrap_or(cwd)
+        .map(|d| d.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "assets".into())
 }
 
 fn fmt_time(t: f32) -> String {

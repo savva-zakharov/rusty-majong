@@ -6,6 +6,26 @@ Mahjong solitaire in Rust: pixel-art tiles on a black, terminal-style screen.
 cargo run --release
 ```
 
+## Web version
+
+The same code also builds for the browser (WebAssembly):
+
+```bash
+bash web/build.sh
+```
+
+```bash
+python -m http.server 8080 --bind 127.0.0.1 --directory dist
+```
+
+Then open http://localhost:8080. `web/build.sh` puts `index.html`, `gl.js` (miniquad's loader,
+copied into `web/`), `rusty-majong.wasm` and your `assets/*.png` into `dist/`. Any static file
+server works. In the browser the art loads over HTTP from `dist/assets/`; after changing it, run
+the build again, or copy the PNGs into `dist/assets/` and press `R`. `Esc` does nothing on the
+web.
+
+## Playing
+
 Click two free tiles that match to remove them. A tile is free when nothing is on top of it and
 its left or right side is open. Flowers match any flower, and seasons match any season.
 

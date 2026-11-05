@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RUSTY-MAJONG</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+        canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            outline: none;
+            image-rendering: pixelated;
+            background: #000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glcanvas" tabindex="1" autofocus></canvas>
+    <!-- miniquad's WebGL/wasm loader, vendored from the miniquad 0.4.11 crate (js/gl.js).
+         Re-copy it if the miniquad version in Cargo.lock changes. -->
+    <script src="gl.js"></script>
+    <script>
+        load("rusty-majong.wasm");
+        // Keep keyboard focus on the game so the hotkeys work after clicking.
+        // (gl.js already declares a global `canvas`, so use another name.)
+        const gameCanvas = document.getElementById("glcanvas");
+        gameCanvas.focus();
+        gameCanvas.addEventListener("pointerdown", () => gameCanvas.focus());
+    </script>
+</body>
+</html>

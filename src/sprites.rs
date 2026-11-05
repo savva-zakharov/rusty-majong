@@ -143,13 +143,14 @@ impl Assets {
         Assets { tile: builtin_tile(), faces: split_sheet(&builtin_sheet()), status: "BUILT-IN ART".into() }
     }
 
-    /// Load from `dir`, falling back to built-in art per file.
-    pub fn load(dir: &Path) -> Assets {
+    /// Build assets from raw PNG bytes (`None` = file absent), falling back to
+    /// built-in art per file. Shared by the native and web loaders.
+    pub fn from_png_bytes(tile: Option<Vec<u8>>, faces: Option<Vec<u8>>) -> Assets {
         let mut a = Assets::builtin();
         let mut loaded = vec![];
         let mut errors = vec![];
 
-        match load_rgba(&dir.join("tile.png"), TILE_W, TILE_H) {
+        match tile.map(|b| decode_rgba(&b, "TILE.PNG", TILE_W, TILE_H)).transpose() {
             Ok(Some(rgba)) => {
                 let px = rgba.chunks_exact(4).map(Tone::from_rgba).collect();
                 a.tile = ToneSprite { w: TILE_W, h: TILE_H, px };
@@ -159,7 +160,7 @@ impl Assets {
             Err(e) => errors.push(e),
         }
         let (sw, sh) = (SHEET_COLS * FW, SHEET_ROWS * FH);
-        match load_rgba(&dir.join("faces.png"), sw, sh) {
+        match faces.map(|b| decode_rgba(&b, "FACES.PNG", sw, sh)).transpose() {
             Ok(Some(rgba)) => {
                 let px = rgba
                     .chunks_exact(4)
@@ -184,22 +185,31 @@ impl Assets {
         };
         a
     }
+
+    /// Load `tile.png` / `faces.png` under `dir` with macroquad's file loader:
+    /// the file system on desktop, an HTTP fetch relative to the page on the web.
+    pub async fn load(dir: &str) -> Assets {
+        let get = |name: &str| format!("{}/{name}", dir.trim_end_matches('/'));
+        let tile = macroquad::file::load_file(&get("tile.png")).await.ok();
+        let faces = macroquad::file::load_file(&get("faces.png")).await.ok();
+        Assets::from_png_bytes(tile, faces)
+    }
+
+    /// Synchronous file-system loader (tests, tools).
+    #[allow(dead_code)]
+    pub fn load_dir(dir: &Path) -> Assets {
+        let read = |name: &str| std::fs::read(dir.join(name)).ok();
+        Assets::from_png_bytes(read("tile.png"), read("faces.png"))
+    }
 }
 
-/// RGBA bytes of a PNG. Ok(None) = file absent. Err = present but unusable.
-fn load_rgba(path: &Path, w: i32, h: i32) -> Result<Option<Vec<u8>>, String> {
-    let name = path.file_name().unwrap_or_default().to_string_lossy().to_uppercase();
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("{name}: {e}")),
-    };
-    let img = Image::from_file_with_format(&bytes, Some(ImageFormat::Png))
-        .map_err(|e| format!("{name}: {e:?}"))?;
+/// Decode PNG bytes to RGBA, checking the size.
+fn decode_rgba(bytes: &[u8], name: &str, w: i32, h: i32) -> Result<Vec<u8>, String> {
+    let img = Image::from_file_with_format(bytes, Some(ImageFormat::Png)).map_err(|e| format!("{name}: {e:?}"))?;
     if img.width as i32 != w || img.height as i32 != h {
         return Err(format!("{name} IS {}X{}, EXPECTED {w}X{h}", img.width, img.height));
     }
-    Ok(Some(img.bytes))
+    Ok(img.bytes)
 }
 
 fn nearest(r: u8, g: u8, b: u8) -> u8 {
@@ -334,7 +344,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rusty-majong-test-{}", std::process::id()));
         assert_eq!(export_builtin(&dir, false).unwrap().len(), 2);
         assert!(export_builtin(&dir, false).unwrap().is_empty(), "must not overwrite");
-        let a = Assets::load(&dir);
+        let a = Assets::load_dir(&dir);
         let b = Assets::builtin();
         assert!(a.status.starts_with("LOADED"), "{}", a.status);
         assert_eq!(a.tile.px, b.tile.px);

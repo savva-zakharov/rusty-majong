@@ -47,10 +47,8 @@ async fn main() {
     let seed = if shot.is_some() {
         0xC0FFEE
     } else {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(1)
+        // Works on desktop and in the browser (std::time::SystemTime panics on wasm).
+        (macroquad::miniquad::date::now() * 1000.0) as u64
     };
     macroquad::rand::srand(seed);
 
@@ -61,7 +59,8 @@ async fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| game::Game::layout_index(n))
         .unwrap_or(0);
-    let mut game = game::Game::new(layout);
+    let assets = sprites::Assets::load(&game::assets_dir()).await;
+    let mut game = game::Game::new(layout, assets);
     if demo || demo_end {
         game.demo_setup(if demo_end { 72 } else { 9 });
     }
@@ -82,6 +81,9 @@ async fn main() {
 
         if !game.update(dt, ((mx - ox) / s, (my - oy) / s)) {
             break;
+        }
+        if game.reload_requested {
+            game.set_assets(sprites::Assets::load(&game::assets_dir()).await);
         }
         game.render(&mut fb);
         fb.write_rgba(&mut image.bytes);
