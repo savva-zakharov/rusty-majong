@@ -58,6 +58,9 @@ async fn main() {
     if demo || demo_end {
         game.demo_setup(if demo_end { 72 } else { 9 });
     }
+    if args.iter().any(|a| a == "--dim") {
+        game.set_dim(true);
+    }
     let mut fb = fb::Fb::new(W, H);
     let mut image = Image::gen_image_color(W as u16, H as u16, BLACK);
     let tex = Texture2D::from_image(&image);

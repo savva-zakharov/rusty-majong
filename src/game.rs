@@ -230,7 +230,16 @@ impl Game {
         self.particles.retain(|p| p.life > 0.0);
 
         let (mx, my) = (mouse.0.floor() as i32, mouse.1.floor() as i32);
+        let prev_hover = self.hover;
         self.hover = self.pick(mx, my);
+        // Moving onto a different tile types its name out on the command line.
+        if self.hover != prev_hover && self.state == State::Playing {
+            if let Some(i) = self.hover {
+                let tag = if self.free(i) { "" } else { " (BLOCKED)" };
+                let s = format!("{}{}", self.faces[i].name(), tag);
+                self.say(&s);
+            }
+        }
 
         if is_key_pressed(KeyCode::Escape) {
             return false;
@@ -417,6 +426,15 @@ impl Game {
             self.say(&s);
             self.msg_t = 99.0;
         }
+        // Show a blocked-tile flash too (topmost blocked tile in draw order).
+        if let Some(&i) = self.order.iter().rev().find(|&&i| self.alive[i] && !self.free(i)) {
+            self.bad = Some(i);
+            self.bad_t = 99.0;
+        }
+    }
+
+    pub fn set_dim(&mut self, on: bool) {
+        self.dim = on;
     }
 
     // ------------------------------------------------------------ render
@@ -573,24 +591,23 @@ fn draw_tile(
 ) {
     // (x, y) is the face's top-left; tile.png is anchored so its face lands there.
     // The three-level tile sprite is multiplied by a tint per state.
-    let tint = if sel {
+    // `bad` is already blink-gated by the caller, so a blocked click flashes the whole tile red.
+    let tint = if bad || sel {
         TINT_SELECT
     } else if hover {
         TINT_HOVER
     } else {
         TINT_NORMAL
     };
-    fb.blit_tinted(x - FACE_OX, y - FACE_OY, &assets.tile, tint);
+    let (tx, ty) = (x - FACE_OX, y - FACE_OY);
+    fb.blit_tinted(tx, ty, &assets.tile, tint);
     fb.blit(x, y, assets.face(face));
     if dim {
-        fb.dither(x, y, FW, FH, BLACK);
+        // Dissolve the whole tile silhouette (sides included), not just the face.
+        fb.dither_mask(tx, ty, &assets.tile, BLACK);
     }
     if hint {
         fb.outline(x, y, FW, FH, AMBER);
         fb.outline(x + 1, y + 1, FW - 2, FH - 2, AMBER);
-    }
-    if bad {
-        fb.outline(x, y, FW, FH, RED);
-        fb.outline(x + 1, y + 1, FW - 2, FH - 2, RED);
     }
 }

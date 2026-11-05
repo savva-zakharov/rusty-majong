@@ -74,12 +74,12 @@ impl Fb {
         self.rect(x + w - 1, y, 1, h, c);
     }
 
-    /// 50% checkerboard dither — the retro way to "dim" something.
-    pub fn dither(&mut self, x: i32, y: i32, w: i32, h: i32, c: u8) {
-        for yy in y..y + h {
-            for xx in x..x + w {
-                if (xx + yy) & 1 == 0 {
-                    self.pset(xx, yy, c);
+    /// 50% checkerboard dither over the opaque pixels of a tile sprite.
+    pub fn dither_mask(&mut self, x: i32, y: i32, s: &ToneSprite, c: u8) {
+        for sy in 0..s.h {
+            for sx in 0..s.w {
+                if (x + sx + y + sy) & 1 == 0 && s.opaque(sx, sy) {
+                    self.pset(x + sx, y + sy, c);
                 }
             }
         }
