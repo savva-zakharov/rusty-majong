@@ -67,8 +67,12 @@ pub struct Game {
     particles: Vec<Particle>,
     pub crt: bool,
     assets: Assets,
-    /// Set by `R`; main loop reloads asynchronously and calls `set_assets`.
-    pub reload_requested: bool,
+    /// Set by `T` (next set) / `R` (reload): the tile set index the main loop
+    /// should load asynchronously and hand back through `set_assets`.
+    pub asset_request: Option<usize>,
+    tile_sets: Vec<String>,
+    tile_set: usize,
+    scheme: usize,
     dim: bool,
     elapsed: f32,
     t: f32,
@@ -80,7 +84,7 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(layout: usize, assets: Assets) -> Self {
+    pub fn new(layout: usize, assets: Assets, tile_sets: Vec<String>, tile_set: usize, scheme: usize) -> Self {
         let mut g = Game {
             layout: 0,
             pos: vec![],
@@ -99,7 +103,10 @@ impl Game {
             particles: vec![],
             crt: true,
             assets,
-            reload_requested: false,
+            asset_request: None,
+            tile_sets,
+            tile_set,
+            scheme: scheme % SCHEMES.len(),
             dim: false,
             elapsed: 0.0,
             t: 0.0,
@@ -113,11 +120,23 @@ impl Game {
         g
     }
 
-    pub fn set_assets(&mut self, assets: Assets) {
+    /// Install a loaded tile set. `tile_sets` is the (possibly re-read) list of set names.
+    pub fn set_assets(&mut self, assets: Assets, tile_set: usize, tile_sets: Vec<String>) {
         self.assets = assets;
-        self.reload_requested = false;
-        let s = format!("RELOAD: {}", self.assets.status);
+        self.tile_sets = tile_sets;
+        self.tile_set = tile_set;
+        self.asset_request = None;
+        let s = self.assets.status.clone();
         self.say(&s);
+    }
+
+    /// RGB for each palette slot in the active colour scheme.
+    pub fn palette(&self) -> &[Rgb; SLOTS] {
+        &SCHEMES[self.scheme].rgb
+    }
+
+    fn tile_set_name(&self) -> &str {
+        self.tile_sets.get(self.tile_set).map(|s| s.as_str()).unwrap_or("?")
     }
 
     /// Switch to layout `idx` (wrapping) and deal a fresh board on it.
@@ -294,7 +313,15 @@ impl Game {
             self.say(if self.dim { "BLOCKED TILES DIMMED." } else { "BLOCKED TILES SHOWN NORMALLY." });
         }
         if is_key_pressed(KeyCode::R) {
-            self.reload_requested = true;
+            self.asset_request = Some(self.tile_set);
+        }
+        if is_key_pressed(KeyCode::T) {
+            self.asset_request = Some((self.tile_set + 1) % self.tile_sets.len().max(1));
+        }
+        if is_key_pressed(KeyCode::P) {
+            self.scheme = (self.scheme + 1) % SCHEMES.len();
+            let s = format!("COLOURS: {}.", SCHEMES[self.scheme].name);
+            self.say(&s);
         }
         if is_key_pressed(KeyCode::C) {
             self.crt = !self.crt;
@@ -536,7 +563,12 @@ impl Game {
 
     fn render_hud(&self, fb: &mut Fb) {
         let x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
-        let name = format!("V0.2 {}", board::LAYOUTS[self.layout].name);
+        let name = format!(
+            "V0.3 {} / {} / {}",
+            board::LAYOUTS[self.layout].name,
+            self.tile_set_name(),
+            SCHEMES[self.scheme].name
+        );
         fb.text(x + 6, 4, &name, DKGREEN);
         let stats = format!(
             "TILES {:3} | MOVES {:2} | TIME {}",
@@ -560,7 +592,7 @@ impl Game {
         fb.text_keys(
             4,
             KEYS_Y,
-            "[H]INT [U]NDO [S]HUFFLE [N]EW [L]AYOUT [F] DIM [R]ELOAD ART [C]RT [ESC] QUIT",
+            "[H]INT [U]NDO [S]HUFFLE [N]EW [L]AYOUT [T]ILES [P]ALETTE [F] DIM [R]ELOAD [C]RT [ESC] QUIT",
             DKGREEN,
             AMBER,
         );

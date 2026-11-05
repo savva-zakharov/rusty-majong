@@ -54,8 +54,10 @@ solved.
 | `S` | shuffle the remaining tiles into a solvable arrangement |
 | `N` | new board |
 | `L` | next layout (deals a new board) |
+| `T` | next tile set |
+| `P` | next colour scheme (palette) |
 | `F` | dither-dim blocked tiles |
-| `R` | reload tile art from `assets/` |
+| `R` | reload the current tile set's art and the list of sets |
 | `C` | toggle CRT scanlines |
 | `Esc` | quit |
 | right click | deselect |
@@ -95,8 +97,9 @@ uses palette colours. The tints are `TINT_NORMAL`, `TINT_HOVER` and `TINT_SELECT
 
 ### faces.png: palette colours
 
-Draw faces in the colours in `src/palette.rs`. Every pixel snaps to the closest palette colour.
-Leave the background transparent, since faces are drawn on top of the tile.
+Draw faces in the colours of the default PHOSPHOR scheme in `src/palette.rs`. Every pixel snaps to
+the closest of them. Leave the background transparent, since faces are drawn on top of the tile.
+Other colour schemes recolour the faces automatically (see below).
 
 ### Both files
 
@@ -113,12 +116,56 @@ placeholders (existing files are kept unless you add `--force`):
 cargo run -- --export-assets assets
 ```
 
+## Tile sets
+
+`T` cycles through tile sets. The list is:
+
+1. **DEFAULT**: `assets/tile.png` and `assets/faces.png`.
+2. One set per line of `assets/sets.txt`, in order. Each line is a folder name under
+   `assets/sets/`, using only letters, digits, `-` and `_`. `#` starts a comment.
+3. **BUILT-IN**: the art drawn by the code.
+
+A set folder can hold `tile.png`, `faces.png` or both, following the rules above. Any file a set
+leaves out comes from `assets/`, then from the built-in art. So a set with just a new `tile.png`
+reuses your faces.
+
+The game uses a list file instead of scanning `assets/sets/` because a browser can't list a folder
+over HTTP. Pressing `R` re-reads `sets.txt`, so a new set shows up without restarting.
+
+Two example sets are included. Both have only a `tile.png`:
+
+| Set | Look |
+| --- | --- |
+| `wireframe` | A black body outlined like a vector drawing: white face edge, grey iso back edges |
+| `chunky` | A thick 2px face border on a black face, with a bright top edge on the sides |
+
+## Colour schemes
+
+`P` cycles through colour schemes. A scheme is a palette swap: it gives new colours to the same 11
+palette slots, so the HUD, the tiles, the built-in art and your PNGs all recolour together. The
+background is always black.
+
+| Scheme | Primary | Highlight (hover) | Selection |
+| --- | --- | --- | --- |
+| PHOSPHOR (default) | green | amber | red |
+| AMBER | amber | pale cream | orange-red |
+| CGA | cyan | yellow | magenta |
+| SUNSET | orange | yellow | pink |
+| ICE | sky blue | white | rose |
+
+Schemes are defined in `SCHEMES` in `src/palette.rs`. To add one, add a line with its light,
+light-shade, primary, red, blue, highlight and lattice colours. The game works out the dark tile
+tints itself (colour × 127/255), and a test checks every scheme.
+
+Start with a particular set and scheme with `--tiles NAME` and `--colours NAME` (desktop only, for
+example `cargo run -- --tiles wireframe --colours amber`). The choice isn't saved between runs.
+
 ## How it's built
 
 - Everything is drawn into a 560×315 palette-indexed framebuffer (93×39 text cells with a hand-made
-  5×7 font), then scaled up by a whole number with nearest-neighbour filtering.
-- The palette has eleven colours, set in `src/palette.rs`: black, ivory, phosphor green, red, blue
-  and amber, plus a few shades.
+  5×7 font), then scaled up with nearest-neighbour filtering to fill the window.
+- The palette has eleven slots, set in `src/palette.rs`. In the default scheme they're black, ivory,
+  phosphor green, red, blue and amber, plus a few shades. Colour schemes swap these colours.
 - The projection is 2:1 pixel isometric. Each tile is extruded in 2px-by-1px steps (ivory, then
   green, then a dark base), and higher layers sit one tile-thickness up and to the right.
 - Every board is dealt by playing the game backwards, so it can always be solved (see

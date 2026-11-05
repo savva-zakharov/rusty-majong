@@ -61,8 +61,17 @@ async fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| game::Game::layout_index(n))
         .unwrap_or(0);
-    let assets = sprites::Assets::load(&game::assets_dir()).await;
-    let mut game = game::Game::new(layout, assets);
+    // `--tiles NAME` / `--colours NAME` pick the starting tile set / colour scheme.
+    let arg = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
+    let root = game::assets_dir();
+    let sets = sprites::list_sets(&root).await;
+    let set = arg("--tiles")
+        .and_then(|n| sets.iter().position(|s| s.name.eq_ignore_ascii_case(&n)))
+        .unwrap_or(0);
+    let scheme = arg("--colours").and_then(|n| palette::scheme_index(&n)).unwrap_or(0);
+    let assets = sprites::Assets::load_set(&root, &sets[set]).await;
+    let names = sets.iter().map(|s| s.name.clone()).collect();
+    let mut game = game::Game::new(layout, assets, names, set, scheme);
     if demo || demo_end {
         game.demo_setup(if demo_end { 72 } else { 9 });
     }
@@ -86,11 +95,15 @@ async fn main() {
         if !game.update(dt, ((mx - ox) / s, (my - oy) / s)) {
             break;
         }
-        if game.reload_requested {
-            game.set_assets(sprites::Assets::load(&game::assets_dir()).await);
+        if let Some(want) = game.asset_request {
+            // Re-read sets.txt too, so newly added sets show up without a restart.
+            let sets = sprites::list_sets(&root).await;
+            let idx = want.min(sets.len() - 1);
+            let assets = sprites::Assets::load_set(&root, &sets[idx]).await;
+            game.set_assets(assets, idx, sets.iter().map(|s| s.name.clone()).collect());
         }
         game.render(&mut fb);
-        fb.write_rgba(&mut image.bytes);
+        fb.write_rgba(&mut image.bytes, game.palette());
         tex.update(&image);
 
         clear_background(BLACK);
@@ -111,21 +124,21 @@ async fn main() {
         }
 
         if let Some(path) = &shot {
-            save_shot(&fb, path, 3);
+            save_shot(&fb, game.palette(), path, 3);
             break;
         }
         next_frame().await
     }
 }
 
-fn save_shot(fb: &fb::Fb, path: &str, k: i32) {
+fn save_shot(fb: &fb::Fb, pal: &[palette::Rgb; palette::SLOTS], path: &str, k: i32) {
     let (w, h) = (fb.w * k, fb.h * k);
     let mut img = Image::gen_image_color(w as u16, h as u16, BLACK);
     for y in 0..h {
         let scan = (h - 1 - y) % k == k - 1;
         for x in 0..w {
             // export_png writes rows bottom-up, so sample the framebuffer flipped.
-            let rgb = palette::PALETTE[fb.get(x / k, (h - 1 - y) / k) as usize];
+            let rgb = pal[fb.get(x / k, (h - 1 - y) / k) as usize];
             let f = if scan { 0.62 } else { 1.0 };
             let o = ((y * w + x) * 4) as usize;
             img.bytes[o] = (rgb[0] as f32 * f) as u8;

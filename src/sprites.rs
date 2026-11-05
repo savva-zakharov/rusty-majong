@@ -186,13 +186,29 @@ impl Assets {
         a
     }
 
-    /// Load `tile.png` / `faces.png` under `dir` with macroquad's file loader:
-    /// the file system on desktop, an HTTP fetch relative to the page on the web.
-    pub async fn load(dir: &str) -> Assets {
-        let get = |name: &str| format!("{}/{name}", dir.trim_end_matches('/'));
-        let tile = macroquad::file::load_file(&get("tile.png")).await.ok();
-        let faces = macroquad::file::load_file(&get("faces.png")).await.ok();
-        Assets::from_png_bytes(tile, faces)
+    /// Load a tile set with macroquad's file loader (the file system on desktop,
+    /// an HTTP fetch relative to the page on the web). Each file comes from the
+    /// set's folder, else from the root `assets/` folder, else the built-in art.
+    pub async fn load_set(root: &str, set: &TileSet) -> Assets {
+        let Some(dir) = &set.dir else {
+            let mut a = Assets::builtin();
+            a.status = "TILES: BUILT-IN.".into();
+            return a;
+        };
+        let fetch = |d: &str, name: &str| format!("{}/{name}", d.trim_end_matches('/'));
+        let mut files = vec![];
+        for name in ["tile.png", "faces.png"] {
+            let mut bytes = macroquad::file::load_file(&fetch(dir, name)).await.ok();
+            if bytes.is_none() && dir != root {
+                bytes = macroquad::file::load_file(&fetch(root, name)).await.ok();
+            }
+            files.push(bytes);
+        }
+        let faces = files.pop().flatten();
+        let tile = files.pop().flatten();
+        let mut a = Assets::from_png_bytes(tile, faces);
+        a.status = format!("TILES: {}. {}", set.name, a.status);
+        a
     }
 
     /// Synchronous file-system loader (tests, tools).
@@ -201,6 +217,45 @@ impl Assets {
         let read = |name: &str| std::fs::read(dir.join(name)).ok();
         Assets::from_png_bytes(read("tile.png"), read("faces.png"))
     }
+}
+
+/// A selectable tile set. `dir: None` means the built-in art.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TileSet {
+    pub name: String,
+    pub dir: Option<String>,
+}
+
+/// Tile sets available under `root`: DEFAULT (the root folder itself), then
+/// one per line of `root/sets.txt` (folder names under `root/sets/`; blank
+/// lines and `#` comments ignored), then BUILT-IN. A list file is used instead
+/// of scanning folders because the web build can't list directories.
+pub fn parse_set_list(root: &str, list: &str) -> Vec<TileSet> {
+    let root = root.trim_end_matches('/');
+    let mut sets = vec![TileSet { name: "DEFAULT".into(), dir: Some(root.into()) }];
+    for line in list.lines() {
+        let name = line.split('#').next().unwrap_or("").trim();
+        let safe = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !safe {
+            if !name.is_empty() {
+                eprintln!("rusty-majong: sets.txt: ignoring {name:?} (use letters, digits, - and _)");
+            }
+            continue;
+        }
+        let upper = name.to_ascii_uppercase();
+        if sets.iter().any(|s| s.name == upper) {
+            continue;
+        }
+        sets.push(TileSet { name: upper, dir: Some(format!("{root}/sets/{name}")) });
+    }
+    sets.push(TileSet { name: "BUILT-IN".into(), dir: None });
+    sets
+}
+
+pub async fn list_sets(root: &str) -> Vec<TileSet> {
+    let path = format!("{}/sets.txt", root.trim_end_matches('/'));
+    let list = macroquad::file::load_string(&path).await.unwrap_or_default();
+    parse_set_list(root, &list)
 }
 
 /// Decode PNG bytes to RGBA, checking the size.
@@ -314,10 +369,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn grey_times_tint_is_in_palette() {
-        for t in [TINT_NORMAL, TINT_HOVER, TINT_SELECT] {
-            assert_eq!(PALETTE[t.half as usize], mul(PALETTE[t.full as usize], GREY));
+    fn grey_times_tint_is_in_palette_for_every_scheme() {
+        for s in SCHEMES {
+            assert_eq!(s.rgb[BLACK as usize], [0, 0, 0], "{}: background must stay black", s.name);
+            for t in [TINT_NORMAL, TINT_HOVER, TINT_SELECT] {
+                assert_eq!(s.rgb[t.half as usize], mul(s.rgb[t.full as usize], GREY), "{}", s.name);
+            }
         }
+    }
+
+    #[test]
+    fn set_list_parsing() {
+        let sets = parse_set_list("assets/", "wireframe\n# comment\n\n chunky # trailing\n../evil\nWIREFRAME\n");
+        let names: Vec<&str> = sets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["DEFAULT", "WIREFRAME", "CHUNKY", "BUILT-IN"]);
+        assert_eq!(sets[0].dir.as_deref(), Some("assets"));
+        assert_eq!(sets[1].dir.as_deref(), Some("assets/sets/wireframe"));
+        assert_eq!(sets[3].dir, None);
     }
 
     #[test]

@@ -202,9 +202,10 @@ impl Fb {
         }
     }
 
-    pub fn write_rgba(&self, out: &mut [u8]) {
+    /// Expand palette indices to RGBA using the active colour scheme.
+    pub fn write_rgba(&self, out: &mut [u8], pal: &[Rgb; SLOTS]) {
         for (i, &p) in self.px.iter().enumerate() {
-            let rgb = PALETTE[p as usize];
+            let rgb = pal[p as usize];
             let o = i * 4;
             out[o] = rgb[0];
             out[o + 1] = rgb[1];

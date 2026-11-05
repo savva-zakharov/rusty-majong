@@ -1,0 +1,5 @@
+# Extra tile sets, one folder name per line (under assets/sets/).
+# Each folder may hold tile.png and/or faces.png; anything missing comes
+# from assets/ itself, then the built-in art. Press T in-game to cycle.
+wireframe
+chunky
