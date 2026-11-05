@@ -19,8 +19,107 @@ pub struct Nb {
     pub up: Vec<usize>, // same layer, directly above on screen (used for shadows)
 }
 
+pub struct Layout {
+    pub name: &'static str,
+    pub build: fn() -> Vec<Pos>,
+}
+
+/// All layouts, 144 tiles each. `L` cycles through them in-game.
+pub const LAYOUTS: &[Layout] = &[
+    Layout { name: "TURTLE", build: turtle },
+    Layout { name: "ZIGGURAT", build: ziggurat },
+    Layout { name: "PYRAMID", build: pyramid },
+    Layout { name: "CASTLE", build: castle },
+];
+
+/// Columns/rows here are whole tiles; positions are stored in half-tile units.
+fn tile(v: &mut Vec<Pos>, col: f32, row: f32, z: i32) {
+    v.push(Pos { gx: (col * 2.0) as i32, gy: (row * 2.0) as i32, z });
+}
+
+/// The traditional "Turtle": a shell of rows, a 6x6 / 4x4 / 2x2 stack,
+/// a single capstone, and head/tail end tiles.
+fn turtle() -> Vec<Pos> {
+    let mut v = Vec::with_capacity(144);
+    // Layer 0: (row, first col, count) — 84 tiles + 3 end tiles.
+    let rows = [(0, 1, 12), (1, 3, 8), (2, 2, 10), (3, 1, 12), (4, 1, 12), (5, 2, 10), (6, 3, 8), (7, 1, 12)];
+    for (r, c0, n) in rows {
+        for c in c0..c0 + n {
+            tile(&mut v, c as f32, r as f32, 0);
+        }
+    }
+    tile(&mut v, 0.0, 3.5, 0); // head
+    tile(&mut v, 13.0, 3.5, 0); // tail
+    tile(&mut v, 14.0, 3.5, 0);
+    for (z, lo, n) in [(1, 4, 6), (2, 5, 4), (3, 6, 2)] {
+        for r in 0..n {
+            for c in 0..n {
+                tile(&mut v, (lo + c) as f32, (lo - 3 + r) as f32, z);
+            }
+        }
+    }
+    tile(&mut v, 6.5, 3.5, 4); // capstone
+    v
+}
+
+/// Half-stepped pyramid: each layer sits offset by half a tile on the one below.
+fn pyramid() -> Vec<Pos> {
+    let mut v = Vec::with_capacity(144);
+    // (z, first col, first row, cols, rows): 60 + 45 + 32 + 7
+    for (z, c0, r0, w, h) in [(0, 0.0, 0.0, 10, 6), (1, 0.5, 0.5, 9, 5), (2, 1.0, 1.0, 8, 4), (3, 1.5, 2.5, 7, 1)] {
+        for r in 0..h {
+            for c in 0..w {
+                tile(&mut v, c0 + c as f32, r0 + r as f32, z);
+            }
+        }
+    }
+    v
+}
+
+/// Walled castle: four corner towers, walls, a central keep and two gates.
+fn castle() -> Vec<Pos> {
+    let mut v = Vec::with_capacity(144);
+    for r in 0..6 {
+        for c in 0..12 {
+            tile(&mut v, c as f32, r as f32, 0); // courtyard floor, 72
+        }
+    }
+    let towers = [(0, 0), (10, 0), (0, 4), (10, 4)];
+    for z in 1..=2 {
+        for (tc, tr) in towers {
+            for (dc, dr) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                tile(&mut v, (tc + dc) as f32, (tr + dr) as f32, z); // 2 x 16
+            }
+        }
+    }
+    for (tc, tr) in towers {
+        tile(&mut v, tc as f32 + 0.5, tr as f32 + 0.5, 3); // tower caps, 4
+    }
+    for c in 2..10 {
+        tile(&mut v, c as f32, 0.0, 1); // north wall
+        tile(&mut v, c as f32, 5.0, 1); // south wall, 16
+    }
+    for r in 2..4 {
+        tile(&mut v, 0.0, r as f32, 1); // west wall
+        tile(&mut v, 11.0, r as f32, 1); // east wall, 4
+    }
+    for r in 2..4 {
+        for c in 4..8 {
+            tile(&mut v, c as f32, r as f32, 1); // keep, 8
+        }
+        for c in 5..7 {
+            tile(&mut v, c as f32, r as f32, 2); // keep, 4
+        }
+    }
+    tile(&mut v, 5.5, 2.5, 3); // keep spire
+    tile(&mut v, 5.5, 2.5, 4);
+    tile(&mut v, -1.0, 2.5, 0); // gates
+    tile(&mut v, 12.0, 2.5, 0);
+    v
+}
+
 /// "Ziggurat": a stepped pyramid with wings, 144 tiles.
-pub fn layout() -> Vec<Pos> {
+fn ziggurat() -> Vec<Pos> {
     let mut v = Vec::with_capacity(144);
     let mut add = |gx, gy, z| v.push(Pos { gx, gy, z });
     for j in 0..6 {
@@ -154,35 +253,45 @@ mod tests {
     use crate::art::full_set_pairs;
 
     #[test]
-    fn layout_has_144_unique_tiles() {
-        let p = layout();
-        assert_eq!(p.len(), 144);
-        for i in 0..p.len() {
-            for j in i + 1..p.len() {
-                let (a, b) = (p[i], p[j]);
-                let overlap = a.z == b.z && (a.gx - b.gx).abs() < 2 && (a.gy - b.gy).abs() < 2;
-                assert!(!overlap, "tiles {i} and {j} overlap");
+    fn layouts_have_144_unique_supported_tiles() {
+        for l in LAYOUTS {
+            let p = (l.build)();
+            assert_eq!(p.len(), 144, "{}", l.name);
+            for i in 0..p.len() {
+                for j in i + 1..p.len() {
+                    let (a, b) = (p[i], p[j]);
+                    let overlap = a.z == b.z && (a.gx - b.gx).abs() < 2 && (a.gy - b.gy).abs() < 2;
+                    assert!(!overlap, "{}: tiles {i} and {j} overlap", l.name);
+                }
+                // Nothing floats: a raised tile rests on at least one tile directly below.
+                let a = p[i];
+                if a.z > 0 {
+                    let rests = p.iter().any(|b| b.z == a.z - 1 && (a.gx - b.gx).abs() < 2 && (a.gy - b.gy).abs() < 2);
+                    assert!(rests, "{}: tile {i} {a:?} floats", l.name);
+                }
             }
         }
     }
 
     #[test]
     fn deals_are_solvable_in_placement_order() {
-        let p = layout();
-        let nb = neighbors(&p);
-        let slots: Vec<usize> = (0..p.len()).collect();
-        for seed in 0..50 {
-            macroquad::rand::srand(seed);
-            let d = deal(&nb, &slots, &full_set_pairs()).expect("deal failed");
-            let mut alive = vec![true; p.len()];
-            for pair in d.chunks(2) {
-                let (a, b) = (pair[0], pair[1]);
-                assert!(is_free(&nb, &alive, a.0) && is_free(&nb, &alive, b.0));
-                assert!(a.1.matches(b.1));
-                alive[a.0] = false;
-                alive[b.0] = false;
+        for l in LAYOUTS {
+            let p = (l.build)();
+            let nb = neighbors(&p);
+            let slots: Vec<usize> = (0..p.len()).collect();
+            for seed in 0..30 {
+                macroquad::rand::srand(seed);
+                let d = deal(&nb, &slots, &full_set_pairs()).unwrap_or_else(|| panic!("{}: deal failed", l.name));
+                let mut alive = vec![true; p.len()];
+                for pair in d.chunks(2) {
+                    let (a, b) = (pair[0], pair[1]);
+                    assert!(is_free(&nb, &alive, a.0) && is_free(&nb, &alive, b.0));
+                    assert!(a.1.matches(b.1));
+                    alive[a.0] = false;
+                    alive[b.0] = false;
+                }
+                assert!(alive.iter().all(|&x| !x));
             }
-            assert!(alive.iter().all(|&x| !x));
         }
     }
 }

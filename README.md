@@ -9,12 +9,26 @@ cargo run --release
 Click two free tiles that match to remove them. A tile is free when nothing is on top of it and
 its left or right side is open. Flowers match any flower, and seasons match any season.
 
+There are four 144-tile layouts. Press `L` to switch, or start on one with
+`cargo run --release -- --layout castle`:
+
+| Layout | Shape |
+| --- | --- |
+| Turtle | The traditional layout: a shell of rows, a 6×6, 4×4 and 2×2 stack, a capstone, and head and tail tiles. This is the default. |
+| Ziggurat | A wide stepped pyramid with staggered rows and wings on both sides. |
+| Pyramid | Four layers, each offset half a tile on the one below. Few moves are open at the start. |
+| Castle | Four corner towers, walls, a central keep with a spire, and two gates. |
+
+Every layout is tested: 144 tiles, no overlaps, no floating tiles, and deals that can always be
+solved.
+
 | Key | Action |
 | --- | --- |
 | `H` | hint |
 | `U` / `Z` / `Backspace` | undo (also undoes shuffles) |
 | `S` | shuffle the remaining tiles into a solvable arrangement |
 | `N` | new board |
+| `L` | next layout (deals a new board) |
 | `F` | dither-dim blocked tiles |
 | `R` | reload tile art from `assets/` |
 | `C` | toggle CRT scanlines |
@@ -76,7 +90,7 @@ cargo run -- --export-assets assets
 
 ## How it's built
 
-- Everything is drawn into a 480×270 palette-indexed framebuffer (80×33 text cells with a hand-made
+- Everything is drawn into a 560×315 palette-indexed framebuffer (93×39 text cells with a hand-made
   5×7 font), then scaled up by a whole number with nearest-neighbour filtering.
 - The palette has eleven colours, set in `src/palette.rs`: black, ivory, phosphor green, red, blue
   and amber, plus a few shades.
@@ -85,4 +99,5 @@ cargo run -- --export-assets assets
 - Every board is dealt by playing the game backwards, so it can always be solved (see
   `board::deal`).
 
-Debug: `--shot out.png [--demo | --demo-end]` renders one frame to a PNG and exits.
+Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim]` renders one frame to a PNG
+and exits.

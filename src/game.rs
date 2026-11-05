@@ -8,8 +8,8 @@ use crate::palette::*;
 use macroquad::input::{is_key_pressed, is_mouse_button_pressed, KeyCode, MouseButton};
 use macroquad::rand::gen_range;
 
-pub const W: i32 = 480;
-pub const H: i32 = 270;
+pub const W: i32 = 560;
+pub const H: i32 = 315;
 
 const HX: i32 = 12; // half-tile step in pixels
 const HY: i32 = 15;
@@ -17,7 +17,10 @@ const DEPTH: i32 = 4; // tile thickness in 2:1 iso steps
 const LX: i32 = 2 * DEPTH; // layer offset = one tile thickness
 const LY: i32 = DEPTH;
 const BOARD_TOP: i32 = 16;
-const BOARD_BOT: i32 = 242;
+const BOARD_BOT: i32 = H - 28;
+const PROMPT_Y: i32 = H - 25;
+const RULE_Y: i32 = H - 15;
+const KEYS_Y: i32 = H - 10;
 
 #[derive(PartialEq, Clone, Copy)]
 enum State {
@@ -47,6 +50,7 @@ struct Particle {
 }
 
 pub struct Game {
+    layout: usize,
     pos: Vec<Pos>,
     nb: Vec<Nb>,
     order: Vec<usize>,
@@ -74,32 +78,14 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new() -> Self {
-        let pos = board::layout();
-        let nb = board::neighbors(&pos);
-        let mut order: Vec<usize> = (0..pos.len()).collect();
-        // Painter's order: lower layers first, then far (right/top) to near (left/bottom).
-        order.sort_by_key(|&i| (pos[i].z, pos[i].gy - pos[i].gx, pos[i].gy));
-
-        let (mut minx, mut maxx, mut miny, mut maxy) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
-        for p in &pos {
-            let x = p.gx * HX + p.z * LX;
-            let y = p.gy * HY - p.z * LY;
-            minx = minx.min(x - 2 * DEPTH);
-            maxx = maxx.max(x + FW);
-            miny = miny.min(y);
-            maxy = maxy.max(y + FH + DEPTH);
-        }
-        let ox = (W - (maxx - minx)) / 2 - minx;
-        let oy = BOARD_TOP + (BOARD_BOT - BOARD_TOP - (maxy - miny)) / 2 - miny;
-
-        let n = pos.len();
+    pub fn new(layout: usize) -> Self {
         let mut g = Game {
-            pos,
-            nb,
-            order,
-            faces: vec![Face::Dots(1); n],
-            alive: vec![true; n],
+            layout: 0,
+            pos: vec![],
+            nb: vec![],
+            order: vec![],
+            faces: vec![],
+            alive: vec![],
             selected: None,
             hover: None,
             hint: None,
@@ -116,12 +102,46 @@ impl Game {
             t: 0.0,
             msg: String::new(),
             msg_t: 0.0,
-            origin: (ox, oy),
+            origin: (0, 0),
             state: State::Playing,
             moves: 0,
         };
-        g.new_game();
+        g.set_layout(layout);
         g
+    }
+
+    /// Switch to layout `idx` (wrapping) and deal a fresh board on it.
+    pub fn set_layout(&mut self, idx: usize) {
+        self.layout = idx % board::LAYOUTS.len();
+        let pos = (board::LAYOUTS[self.layout].build)();
+        self.nb = board::neighbors(&pos);
+        let mut order: Vec<usize> = (0..pos.len()).collect();
+        // Painter's order: lower layers first, then far (right/top) to near (left/bottom).
+        order.sort_by_key(|&i| (pos[i].z, pos[i].gy - pos[i].gx, pos[i].gy));
+        self.order = order;
+
+        let (mut minx, mut maxx, mut miny, mut maxy) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+        for p in &pos {
+            let x = p.gx * HX + p.z * LX;
+            let y = p.gy * HY - p.z * LY;
+            minx = minx.min(x - 2 * DEPTH);
+            maxx = maxx.max(x + FW);
+            miny = miny.min(y);
+            maxy = maxy.max(y + FH + DEPTH);
+        }
+        let ox = (W - (maxx - minx)) / 2 - minx;
+        let oy = BOARD_TOP + (BOARD_BOT - BOARD_TOP - (maxy - miny)) / 2 - miny;
+        self.origin = (ox, oy);
+
+        self.faces = vec![Face::Dots(1); pos.len()];
+        self.pos = pos;
+        self.hover = None;
+        self.new_game();
+    }
+
+    /// Index of a layout by (case-insensitive) name.
+    pub fn layout_index(name: &str) -> Option<usize> {
+        board::LAYOUTS.iter().position(|l| l.name.eq_ignore_ascii_case(name))
     }
 
     fn new_game(&mut self) {
@@ -145,7 +165,7 @@ impl Game {
         self.elapsed = 0.0;
         self.state = State::Playing;
         self.refresh_moves();
-        let s = format!("NEW BOARD DEALT. {}", self.assets.status);
+        let s = format!("{} DEALT. {}", board::LAYOUTS[self.layout].name, self.assets.status);
         self.say(&s);
     }
 
@@ -243,6 +263,9 @@ impl Game {
 
         if is_key_pressed(KeyCode::Escape) {
             return false;
+        }
+        if is_key_pressed(KeyCode::L) {
+            self.set_layout(self.layout + 1);
         }
         if is_key_pressed(KeyCode::N) {
             self.new_game();
@@ -505,7 +528,8 @@ impl Game {
 
     fn render_hud(&self, fb: &mut Fb) {
         let x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
-        fb.text(x + 6, 4, "V0.1 ZIGGURAT", DKGREEN);
+        let name = format!("V0.2 {}", board::LAYOUTS[self.layout].name);
+        fb.text(x + 6, 4, &name, DKGREEN);
         let stats = format!(
             "TILES {:3} | MOVES {:2} | TIME {}",
             self.remaining(),
@@ -518,17 +542,17 @@ impl Game {
         // Prompt line with typewriter reveal and blinking block cursor.
         let shown = ((self.msg_t * 70.0) as usize).min(self.msg.chars().count());
         let line: String = self.msg.chars().take(shown).collect();
-        let x = fb.text(4, 245, ">", AMBER);
-        let x = fb.text_keys(x + 6, 245, &line, GREEN, AMBER);
+        let x = fb.text(4, PROMPT_Y, ">", AMBER);
+        let x = fb.text_keys(x + 6, PROMPT_Y, &line, GREEN, AMBER);
         if ((self.t * 2.5) as i32) % 2 == 0 {
-            fb.text(x, 245, "█", GREEN);
+            fb.text(x, PROMPT_Y, "█", GREEN);
         }
 
-        dashed(fb, 255);
+        dashed(fb, RULE_Y);
         fb.text_keys(
             4,
-            260,
-            "[H]INT [U]NDO [S]HUFFLE [N]EW [F] DIM [R]ELOAD ART [C]RT [ESC] QUIT",
+            KEYS_Y,
+            "[H]INT [U]NDO [S]HUFFLE [N]EW [L]AYOUT [F] DIM [R]ELOAD ART [C]RT [ESC] QUIT",
             DKGREEN,
             AMBER,
         );

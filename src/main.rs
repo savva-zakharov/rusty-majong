@@ -54,7 +54,14 @@ async fn main() {
     };
     macroquad::rand::srand(seed);
 
-    let mut game = game::Game::new();
+    // `--layout NAME` picks the starting layout (default: the first, Turtle).
+    let layout = args
+        .iter()
+        .position(|a| a == "--layout")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| game::Game::layout_index(n))
+        .unwrap_or(0);
+    let mut game = game::Game::new(layout);
     if demo || demo_end {
         game.demo_setup(if demo_end { 72 } else { 9 });
     }
