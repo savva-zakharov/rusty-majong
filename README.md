@@ -85,15 +85,17 @@ Draw the tile in only three colours: white `(255,255,255)`, grey `(127,127,127)`
 `(0,0,0)`, plus transparency. Other colours snap to the closest of the three by brightness. The
 game colours the tile by multiplying it with a tint for each state:
 
-| State | White becomes | Grey becomes | Black |
+| State | White becomes | Grey becomes | Black becomes |
 | --- | --- | --- | --- |
-| Normal | green | dark green | black |
-| Hover (free tile) | amber | dark amber | black |
-| Selected | red | dark red | black |
+| Normal | green | dark green | the tile body colour |
+| Hover (free tile) | amber | dark amber | the tile body colour |
+| Selected | red | dark red | the tile body colour |
 
 Each dark colour is its tint × 127/255, and it's part of the palette, so the screen still only
 uses palette colours. The tints are `TINT_NORMAL`, `TINT_HOVER` and `TINT_SELECT` in
-`src/palette.rs`.
+`src/palette.rs`. The tile body colour depends on the colour scheme: black in the dark schemes,
+ivory in IVORY. So the same three-tone tile gives black tiles on a dark screen and ivory tiles in
+light mode.
 
 ### faces.png: palette colours
 
@@ -141,21 +143,26 @@ Two example sets are included. Both have only a `tile.png`:
 
 ## Colour schemes
 
-`P` cycles through colour schemes. A scheme is a palette swap: it gives new colours to the same 11
+`P` cycles through colour schemes. A scheme is a palette swap: it gives new colours to the same 14
 palette slots, so the HUD, the tiles, the built-in art and your PNGs all recolour together. The
-background is always black.
+background and the tile body are palette slots too, which is what makes a light mode possible.
 
-| Scheme | Primary | Highlight (hover) | Selection |
-| --- | --- | --- | --- |
-| PHOSPHOR (default) | green | amber | red |
-| AMBER | amber | pale cream | orange-red |
-| CGA | cyan | yellow | magenta |
-| SUNSET | orange | yellow | pink |
-| ICE | sky blue | white | rose |
+| Scheme | Background | Tile body | Primary | Highlight (hover) | Selection |
+| --- | --- | --- | --- | --- | --- |
+| PHOSPHOR (default) | black | black | green | amber | red |
+| IVORY (light mode) | pale table | ivory | jade green | orange | crimson |
+| AMBER | black | black | amber | pale cream | orange-red |
+| CGA | black | black | cyan | yellow | magenta |
+| SUNSET | black | black | orange | yellow | pink |
+| ICE | black | black | sky blue | white | rose |
 
-Schemes are defined in `SCHEMES` in `src/palette.rs`. To add one, add a line with its light,
-light-shade, primary, red, blue, highlight and lattice colours. The game works out the dark tile
-tints itself (colour × 127/255), and a test checks every scheme.
+IVORY looks like ordinary tiles: ivory faces, green backs, dark inks, on a light table. The `C`
+scanlines still work in light mode, but you may prefer them off there.
+
+Schemes are defined in `SCHEMES` in `src/palette.rs`. Each scheme sets its light, light-shade,
+primary, red, blue, highlight, lattice, background and tile body colours. The game works out the
+dark tile tints (colour × 127/255) and the shadowed tile body itself, and a test checks every
+scheme. The `BLACK` slot is always black, because it's the black ink in face art.
 
 Start with a particular set and scheme with `--tiles NAME` and `--colours NAME` (desktop only, for
 example `cargo run -- --tiles wireframe --colours amber`). The choice isn't saved between runs.
@@ -164,8 +171,8 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
 
 - Everything is drawn into a 560×315 palette-indexed framebuffer (93×39 text cells with a hand-made
   5×7 font), then scaled up with nearest-neighbour filtering to fill the window.
-- The palette has eleven slots, set in `src/palette.rs`. In the default scheme they're black, ivory,
-  phosphor green, red, blue and amber, plus a few shades. Colour schemes swap these colours.
+- The palette has 14 slots, set in `src/palette.rs`. They cover ink colours, a background, a tile
+  body and a few shades. Colour schemes swap these colours.
 - The projection is 2:1 pixel isometric. Each tile is extruded in 2px-by-1px steps (ivory, then
   green, then a dark base), and higher layers sit one tile-thickness up and to the right.
 - Every board is dealt by playing the game backwards, so it can always be solved (see

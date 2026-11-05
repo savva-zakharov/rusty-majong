@@ -274,7 +274,9 @@ fn nearest(r: u8, g: u8, b: u8) -> u8 {
         let db = c[2] as i32 - b as i32;
         dr * dr + dg * dg + db * db
     };
-    (0..PALETTE.len()).min_by_key(|&i| d(&PALETTE[i])).unwrap() as u8
+    // Only "ink" slots: background/body slots are scheme roles, not art colours
+    // (in PHOSPHOR they're black too, and black art must stay BLACK ink).
+    (0..BG as usize).min_by_key(|&i| d(&PALETTE[i])).unwrap() as u8
 }
 
 fn split_sheet(sheet: &Sprite) -> Vec<Sprite> {
@@ -371,7 +373,8 @@ mod tests {
     #[test]
     fn grey_times_tint_is_in_palette_for_every_scheme() {
         for s in SCHEMES {
-            assert_eq!(s.rgb[BLACK as usize], [0, 0, 0], "{}: background must stay black", s.name);
+            assert_eq!(s.rgb[BLACK as usize], [0, 0, 0], "{}: BLACK is ink and stays black", s.name);
+            assert_eq!(s.rgb[BODY_SH as usize], mul(s.rgb[BODY as usize], 200), "{}", s.name);
             for t in [TINT_NORMAL, TINT_HOVER, TINT_SELECT] {
                 assert_eq!(s.rgb[t.half as usize], mul(s.rgb[t.full as usize], GREY), "{}", s.name);
             }

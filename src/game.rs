@@ -498,7 +498,7 @@ impl Game {
     // ------------------------------------------------------------ render
 
     pub fn render(&self, fb: &mut Fb) {
-        fb.clear(BLACK);
+        fb.clear(BG);
 
         // Isometric dot lattice on the "desk".
         for (r, y) in (BOARD_TOP + 2..BOARD_BOT).step_by(5).enumerate() {
@@ -632,7 +632,7 @@ fn dialog(fb: &mut Fb, title: &str, lines: &[&str]) {
     let x = (W - w) / 2;
     let y = (BOARD_TOP + BOARD_BOT) / 2 - h / 2;
     fb.rect(x + 6, y + 4, w, h, DKGREEN); // drop shadow
-    fb.rect(x, y, w, h, BLACK);
+    fb.rect(x, y, w, h, BG);
     fb.outline(x, y, w, h, GREEN);
     fb.outline(x + 2, y + 2, w - 4, h - 4, GREEN);
     fb.text_center(W / 2, y + 8, title, AMBER, AMBER);
@@ -669,7 +669,7 @@ fn draw_tile(
     fb.blit(x, y, assets.face(face));
     if dim {
         // Dissolve the whole tile silhouette (sides included), not just the face.
-        fb.dither_mask(tx, ty, &assets.tile, BLACK);
+        fb.dither_mask(tx, ty, &assets.tile, BG);
     }
     if hint {
         fb.outline(x, y, FW, FH, AMBER);

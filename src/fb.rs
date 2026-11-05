@@ -105,7 +105,7 @@ impl Fb {
                 let c = match s.px[(sy * s.w + sx) as usize] {
                     Tone::White => tint.full,
                     Tone::Grey => tint.half,
-                    Tone::Black => BLACK,
+                    Tone::Black => BODY,
                     Tone::Clear => continue,
                 };
                 self.pset(x + sx, y + sy, c);
@@ -122,6 +122,7 @@ impl Fb {
                     GREEN => DKGREEN,
                     AMBER => DKAMBER,
                     RED => DKRED,
+                    BODY => BODY_SH,
                     c => c,
                 };
                 self.pset(xx, yy, c);

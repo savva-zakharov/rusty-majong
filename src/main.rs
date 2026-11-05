@@ -106,7 +106,9 @@ async fn main() {
         fb.write_rgba(&mut image.bytes, game.palette());
         tex.update(&image);
 
-        clear_background(BLACK);
+        // Letterbox bars use the scheme's background colour too.
+        let bg = game.palette()[palette::BG as usize];
+        clear_background(Color::from_rgba(bg[0], bg[1], bg[2], 255));
         draw_texture_ex(
             &tex,
             ox,
