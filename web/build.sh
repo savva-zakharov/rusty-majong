@@ -2,7 +2,7 @@
 # Build the web version into dist/:
 #   dist/index.html, dist/gl.js, dist/rusty-majong.wasm, dist/assets/*.png
 # Serve dist/ with any static file server, e.g.:
-#   python -m http.server 8080 --directory dist
+#   npx --yes serve@14 dist --listen tcp://0.0.0.0:8080
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

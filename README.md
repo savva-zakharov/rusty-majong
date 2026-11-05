@@ -15,10 +15,15 @@ bash web/build.sh
 ```
 
 ```bash
-python -m http.server 8080 --bind 127.0.0.1 --directory dist
+npx --yes serve@14 dist --listen tcp://0.0.0.0:8080 --no-clipboard
 ```
 
-Then open http://localhost:8080. `web/build.sh` puts `index.html`, `gl.js` (miniquad's loader,
+This serves on every network interface, so other devices on your network can open
+`http://<this-machine's-LAN-IP>:8080` (`ipconfig` shows the IP). On this machine,
+http://localhost:8080 also works. Windows Firewall has to allow inbound connections for Node.js
+on the network you're on. To serve to this machine only, use `--listen tcp://127.0.0.1:8080`.
+
+`web/build.sh` puts `index.html`, `gl.js` (miniquad's loader,
 copied into `web/`), `rusty-majong.wasm` and your `assets/*.png` into `dist/`. Any static file
 server works. In the browser the art loads over HTTP from `dist/assets/`; after changing it, run
 the build again, or copy the PNGs into `dist/assets/` and press `R`. `Esc` does nothing on the
