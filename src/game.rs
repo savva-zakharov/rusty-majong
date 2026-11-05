@@ -1,6 +1,7 @@
 //! Game state, input handling and rendering into the framebuffer.
 
 use crate::art::{self, Face, FH, FW};
+use crate::sprites::{Assets, FACE_OX, FACE_OY, TILE_H, TILE_W};
 use crate::board::{self, Nb, Pos};
 use crate::fb::Fb;
 use crate::palette::*;
@@ -61,6 +62,7 @@ pub struct Game {
     ghosts: Vec<Ghost>,
     particles: Vec<Particle>,
     pub crt: bool,
+    assets: Assets,
     dim: bool,
     elapsed: f32,
     t: f32,
@@ -108,6 +110,7 @@ impl Game {
             ghosts: vec![],
             particles: vec![],
             crt: true,
+            assets: Assets::load(&assets_dir()),
             dim: false,
             elapsed: 0.0,
             t: 0.0,
@@ -142,7 +145,8 @@ impl Game {
         self.elapsed = 0.0;
         self.state = State::Playing;
         self.refresh_moves();
-        self.say("NEW BOARD DEALT. MATCH FREE TILES IN PAIRS.");
+        let s = format!("NEW BOARD DEALT. {}", self.assets.status);
+        self.say(&s);
     }
 
     fn say(&mut self, s: &str) {
@@ -184,17 +188,15 @@ impl Game {
     }
 
     fn pick(&self, mx: i32, my: i32) -> Option<usize> {
+        // Topmost tile whose sprite has an opaque pixel under the cursor.
         for &i in self.order.iter().rev() {
             if !self.alive[i] {
                 continue;
             }
             let (sx, sy) = self.screen_pos(i);
-            for t in 0..=DEPTH {
-                let rx = sx - 2 * t;
-                let ry = sy + t;
-                if mx >= rx && mx < rx + FW && my >= ry && my < ry + FH {
-                    return Some(i);
-                }
+            let (lx, ly) = (mx - (sx - FACE_OX), my - (sy - FACE_OY));
+            if lx >= 0 && ly >= 0 && lx < TILE_W && ly < TILE_H && self.assets.tile.opaque(lx, ly) {
+                return Some(i);
             }
         }
         None
@@ -248,6 +250,11 @@ impl Game {
         if is_key_pressed(KeyCode::F) {
             self.dim = !self.dim;
             self.say(if self.dim { "BLOCKED TILES DIMMED." } else { "BLOCKED TILES SHOWN NORMALLY." });
+        }
+        if is_key_pressed(KeyCode::R) {
+            self.assets = Assets::load(&assets_dir());
+            let s = format!("RELOAD: {}", self.assets.status);
+            self.say(&s);
         }
         if is_key_pressed(KeyCode::C) {
             self.crt = !self.crt;
@@ -446,7 +453,7 @@ impl Game {
                     fb.shade(sx + 1, sy - 2, FW, 2);
                 }
             }
-            draw_tile(fb, sx, sy, self.faces[i], sel, self.dim && !free, hover, hinted, bad);
+            draw_tile(fb, &self.assets, sx, sy, self.faces[i], sel, self.dim && !free, hover, hinted, bad);
         }
 
         for g in &self.ghosts {
@@ -503,11 +510,24 @@ impl Game {
         fb.text_keys(
             4,
             260,
-            "[H]INT [U]NDO [S]HUFFLE [N]EW [F] DIM BLOCKED [C]RT [ESC] QUIT",
+            "[H]INT [U]NDO [S]HUFFLE [N]EW [F] DIM [R]ELOAD ART [C]RT [ESC] QUIT",
             DKGREEN,
             AMBER,
         );
     }
+}
+
+/// `assets/` next to the working directory, or next to the executable.
+pub fn assets_dir() -> std::path::PathBuf {
+    let cwd = std::path::PathBuf::from("assets");
+    if cwd.is_dir() {
+        return cwd;
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("assets")))
+        .filter(|d| d.is_dir())
+        .unwrap_or(cwd)
 }
 
 fn fmt_time(t: f32) -> String {
@@ -539,29 +559,31 @@ fn dialog(fb: &mut Fb, title: &str, lines: &[&str]) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_tile(fb: &mut Fb, x: i32, y: i32, face: Face, sel: bool, dim: bool, hover: bool, hint: bool, bad: bool) {
-    // Body: stack offset copies of the face rect along the 2:1 iso depth axis.
-    // Near the face it's ivory, then the green "back" of the tile, then a dark base.
-    for t in (1..=DEPTH).rev() {
-        let c = match t {
-            1 => IVORY_SH,
-            2 | 3 => GREEN,
-            _ => DKGREEN,
-        };
-        fb.rect(x - 2 * t, y + t, FW, FH, c);
-    }
-    // 1px owned edge on the right/bottom so neighbouring faces never merge.
-    fb.rect(x, y, FW + 1, FH + 1, IVORY_SH);
-    fb.rect(x, y, FW, FH, if sel { AMBER } else { IVORY });
-    art::draw_face(fb, x, y, face);
+fn draw_tile(
+    fb: &mut Fb,
+    assets: &Assets,
+    x: i32,
+    y: i32,
+    face: Face,
+    sel: bool,
+    dim: bool,
+    hover: bool,
+    hint: bool,
+    bad: bool,
+) {
+    // (x, y) is the face's top-left; tile.png is anchored so its face lands there.
+    // The three-level tile sprite is multiplied by a tint per state.
+    let tint = if sel {
+        TINT_SELECT
+    } else if hover {
+        TINT_HOVER
+    } else {
+        TINT_NORMAL
+    };
+    fb.blit_tinted(x - FACE_OX, y - FACE_OY, &assets.tile, tint);
+    fb.blit(x, y, assets.face(face));
     if dim {
         fb.dither(x, y, FW, FH, BLACK);
-    }
-    if hover {
-        fb.outline(x, y, FW, FH, GREEN);
-    }
-    if sel {
-        fb.outline(x, y, FW, FH, RED);
     }
     if hint {
         fb.outline(x, y, FW, FH, AMBER);

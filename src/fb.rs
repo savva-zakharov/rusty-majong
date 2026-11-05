@@ -2,6 +2,7 @@
 
 use crate::font;
 use crate::palette::*;
+use crate::sprites::{Sprite, Tone, ToneSprite, TRANSPARENT};
 
 pub struct Fb {
     pub w: i32,
@@ -84,6 +85,34 @@ impl Fb {
         }
     }
 
+    /// Draw a palette sprite, skipping transparent pixels.
+    pub fn blit(&mut self, x: i32, y: i32, s: &Sprite) {
+        for sy in 0..s.h {
+            for sx in 0..s.w {
+                let c = s.px[(sy * s.w + sx) as usize];
+                if c != TRANSPARENT {
+                    self.pset(x + sx, y + sy, c);
+                }
+            }
+        }
+    }
+
+    /// Draw a three-level sprite multiplied by `tint`:
+    /// white -> tint.full, grey -> tint.half (tint x 127/255), black -> black.
+    pub fn blit_tinted(&mut self, x: i32, y: i32, s: &ToneSprite, tint: Tint) {
+        for sy in 0..s.h {
+            for sx in 0..s.w {
+                let c = match s.px[(sy * s.w + sx) as usize] {
+                    Tone::White => tint.full,
+                    Tone::Grey => tint.half,
+                    Tone::Black => BLACK,
+                    Tone::Clear => continue,
+                };
+                self.pset(x + sx, y + sy, c);
+            }
+        }
+    }
+
     /// Darken a region by shifting each pixel one step down the palette ramp.
     pub fn shade(&mut self, x: i32, y: i32, w: i32, h: i32) {
         for yy in y..y + h {
@@ -91,7 +120,8 @@ impl Fb {
                 let c = match self.get(xx, yy) {
                     IVORY => IVORY_SH,
                     GREEN => DKGREEN,
-                    AMBER => RED,
+                    AMBER => DKAMBER,
+                    RED => DKRED,
                     c => c,
                 };
                 self.pset(xx, yy, c);

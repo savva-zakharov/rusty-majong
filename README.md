@@ -16,15 +16,69 @@ its left or right side is open. Flowers match any flower, and seasons match any 
 | `S` | shuffle the remaining tiles into a solvable arrangement |
 | `N` | new board |
 | `F` | dither-dim blocked tiles |
+| `R` | reload tile art from `assets/` |
 | `C` | toggle CRT scanlines |
 | `Esc` | quit |
 | right click | deselect |
+
+## Custom tile art
+
+Each tile is drawn from two PNGs in `assets/`: the tile body, and the picture drawn on top of it.
+
+| File | Size | Contents |
+| --- | --- | --- |
+| `assets/tile.png` | 32 × 34 | A blank tile, including its sides. The face's top-left corner is at (8, 0). |
+| `assets/faces.png` | 207 × 145 | A 9 × 5 grid of 23 × 29 cells, one picture per cell, with no gaps. |
+
+Rows in `faces.png`:
+
+1. dots 1–9
+2. bamboo 1–9
+3. characters 1–9
+4. winds E S W N, then dragons red, green, white (the last 2 cells are unused)
+5. flowers 1–4, then seasons 1–4 (the last cell is unused)
+
+### tile.png: three tones, coloured by multiplication
+
+Draw the tile in only three colours: white `(255,255,255)`, grey `(127,127,127)` and black
+`(0,0,0)`, plus transparency. Other colours snap to the closest of the three by brightness. The
+game colours the tile by multiplying it with a tint for each state:
+
+| State | White becomes | Grey becomes | Black |
+| --- | --- | --- | --- |
+| Normal | green | dark green | black |
+| Hover (free tile) | amber | dark amber | black |
+| Selected | red | dark red | black |
+
+Each dark colour is its tint × 127/255, and it's part of the palette, so the screen still only
+uses palette colours. The tints are `TINT_NORMAL`, `TINT_HOVER` and `TINT_SELECT` in
+`src/palette.rs`.
+
+### faces.png: palette colours
+
+Draw faces in the colours in `src/palette.rs`. Every pixel snaps to the closest palette colour.
+Leave the background transparent, since faces are drawn on top of the tile.
+
+### Both files
+
+- Pixels with alpha below 128 are transparent.
+- Clicks are tested against the opaque pixels of `tile.png`, so the tile shape is also the hit area.
+- Keep the sides within 8px left and 4px down of the face. Layers are stacked at that offset.
+- A file that's missing or the wrong size falls back to the built-in art. The message line says
+  which happened.
+
+Press `R` in the game to reload the PNGs while you edit them. To write the built-in art out as
+placeholders (existing files are kept unless you add `--force`):
+
+```
+cargo run -- --export-assets assets
+```
 
 ## How it's built
 
 - Everything is drawn into a 480×270 palette-indexed framebuffer (80×33 text cells with a hand-made
   5×7 font), then scaled up by a whole number with nearest-neighbour filtering.
-- The palette has nine colours, set in `src/palette.rs`: black, ivory, phosphor green, red, blue
+- The palette has eleven colours, set in `src/palette.rs`: black, ivory, phosphor green, red, blue
   and amber, plus a few shades.
 - The projection is 2:1 pixel isometric. Each tile is extruded in 2px-by-1px steps (ivory, then
   green, then a dark base), and higher layers sit one tile-thickness up and to the right.

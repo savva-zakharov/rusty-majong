@@ -4,6 +4,7 @@ mod fb;
 mod font;
 mod game;
 mod palette;
+mod sprites;
 
 use game::{H, W};
 use macroquad::prelude::*;
@@ -22,6 +23,22 @@ fn conf() -> Conf {
 #[macroquad::main(conf)]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // `--export-assets [dir] [--force]` writes the built-in art as placeholder PNGs.
+    // Existing files are kept unless --force is given.
+    if let Some(i) = args.iter().position(|a| a == "--export-assets") {
+        let dir = args
+            .get(i + 1)
+            .filter(|a| !a.starts_with("--"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "assets".into());
+        let force = args.iter().any(|a| a == "--force");
+        match sprites::export_builtin(&dir, force) {
+            Ok(w) if w.is_empty() => println!("nothing written: files exist (use --force to overwrite)"),
+            Ok(w) => println!("wrote {}", w.join(", ")),
+            Err(e) => eprintln!("export failed: {e}"),
+        }
+        return;
+    }
     // `--shot out.png [--demo]` renders one frame to a PNG (3x, with scanlines) and exits.
     let shot = args.iter().position(|a| a == "--shot").and_then(|i| args.get(i + 1).cloned());
     let demo = args.iter().any(|a| a == "--demo");
