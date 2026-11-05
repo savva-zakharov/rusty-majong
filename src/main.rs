@@ -15,7 +15,9 @@ fn conf() -> Conf {
         window_width: W * 3,
         window_height: H * 3,
         window_resizable: true,
-        high_dpi: false,
+        // In the browser, render at the device's real pixel density so phones get
+        // crisp pixels instead of an upscaled blur.
+        high_dpi: cfg!(target_arch = "wasm32"),
         ..Default::default()
     }
 }
@@ -74,7 +76,9 @@ async fn main() {
 
     loop {
         let dt = get_frame_time().min(0.05);
-        let s = (screen_width() / W as f32).min(screen_height() / H as f32).floor().max(1.0);
+        // Fill the window: largest scale that fits, fractional when needed (whole
+        // multiples only would leave big borders on phones and odd window sizes).
+        let s = (screen_width() / W as f32).min(screen_height() / H as f32);
         let ox = ((screen_width() - W as f32 * s) / 2.0).floor();
         let oy = ((screen_height() - H as f32 * s) / 2.0).floor();
         let (mx, my) = mouse_position();
@@ -99,9 +103,10 @@ async fn main() {
         );
         if game.crt && s >= 2.0 {
             let lh = (s / 3.0).max(1.0).floor();
+            // Round each line to whole pixels so fractional scales don't shimmer.
             let col = Color::new(0.0, 0.0, 0.0, 0.38);
             for r in 0..H {
-                draw_rectangle(ox, oy + r as f32 * s + s - lh, W as f32 * s, lh, col);
+                draw_rectangle(ox, (oy + (r + 1) as f32 * s).round() - lh, W as f32 * s, lh, col);
             }
         }
 
