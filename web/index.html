@@ -31,10 +31,59 @@
             -webkit-touch-callout: none;
             -webkit-tap-highlight-color: transparent;
         }
+
+        /* "Rotate to landscape" hint: only on touch screens held upright.
+           It fills the empty band above the board (the 560x315 game is
+           56.25vw tall when it fits the width) and never blocks touches. */
+        #rotate-hint {
+            display: none;
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            height: calc((100% - 56.25vw) / 2);
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            pointer-events: none;
+            font: bold 14px/1.6 "Courier New", Courier, monospace;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #2ED86A;
+            text-align: center;
+        }
+        @media (orientation: portrait) and (pointer: coarse) {
+            #rotate-hint { display: flex; }
+        }
+        #rotate-hint .prompt { color: #FFB000; }
+        #rotate-hint .dim { color: #176C35; }
+        #rotate-hint .cursor { animation: blink 1s steps(1) infinite; }
+        #rotate-hint .phone {
+            width: 20px;
+            height: 34px;
+            border: 3px solid #2ED86A;
+            border-radius: 3px;
+            box-shadow: inset 0 -5px 0 -2px #176C35;
+            animation: turn 2.4s ease-in-out infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+        @keyframes turn {
+            0%, 25% { transform: rotate(0deg); }
+            50%, 85% { transform: rotate(-90deg); border-color: #FFB000; }
+            100% { transform: rotate(0deg); }
+        }
     </style>
 </head>
 <body>
     <canvas id="glcanvas" tabindex="1" autofocus></canvas>
+    <div id="rotate-hint" aria-live="polite">
+        <div class="phone"></div>
+        <div>
+            <span class="prompt">&gt;</span> ROTATE TO LANDSCAPE<span class="cursor">&#9608;</span><br>
+            <span class="dim">FOR A BIGGER BOARD</span>
+        </div>
+    </div>
     <!-- miniquad's WebGL/wasm loader, vendored from the miniquad 0.4.11 crate (js/gl.js).
          Re-copy it if the miniquad version in Cargo.lock changes. -->
     <script src="gl.js"></script>
