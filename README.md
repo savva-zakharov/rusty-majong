@@ -48,8 +48,8 @@ relative paths.
 Click two free tiles that match to remove them. A tile is free when nothing is on top of it and
 its left or right side is open. Flowers match any flower, and seasons match any season.
 
-There are four 144-tile layouts. Press `L` to switch, or start on one with
-`cargo run --release -- --layout castle`:
+There are four 144-tile layouts. Pick one when you start a new board (see below), or start on one
+with `cargo run --release -- --layout castle`:
 
 | Layout | Shape |
 | --- | --- |
@@ -66,8 +66,7 @@ solved.
 | `H` | hint |
 | `U` / `Z` / `Backspace` | undo (also undoes shuffles) |
 | `S` | shuffle the remaining tiles into a solvable arrangement |
-| `N` | new board |
-| `L` | next layout (deals a new board) |
+| `N` | new board: opens the new-board dialog, where you pick the layout |
 | `T` | next tile set |
 | `P` | next colour scheme (palette) |
 | `F` | dither-dim blocked tiles |
@@ -83,7 +82,14 @@ reachable on a phone or tablet without a keyboard. Each button's hit area is the
 the bar and reaches halfway to its neighbours, to make it easy to tap. The web version leaves out
 `QUIT`.
 
-The pop-ups work the same way: `[N] NEW BOARD` when you clear the board, and `[S]HUFFLE`,
+`[N]EW` asks first. The **NEW BOARD?** dialog shows the layout's name, with `<` and `>` either
+side to step through the layouts, and a small map of it: one block per tile, with higher layers
+nudged up and to the right in brighter colours (green, then amber, ivory and red). `[Y]ES` deals
+a new board on that layout; `[N]O` closes the dialog and keeps the current board. On a keyboard,
+`←` / `→` (or `A` / `D`) change the layout, `Y`, `Enter` or `Space` confirm, and `N`, `Esc` or
+`Backspace` cancel. While it's open, the board behind it ignores clicks.
+
+The other pop-ups work the same way: `[N] NEW BOARD` when you clear the board (it opens the dialog above), and `[S]HUFFLE`,
 `[U]NDO` and `[N]EW` when no moves are left. Click or tap a button to use it. Clicks elsewhere
 inside a pop-up are ignored, so they can't hit the tiles underneath.
 
@@ -265,5 +271,5 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
 - Every board is dealt by playing the game backwards, so it can always be solved (see
   `board::deal`).
 
-Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim]` renders one frame to a PNG
+Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim] [--new-dialog]` renders one frame to a PNG
 and exits. `--sound-check` prints how many typing sounds were found and exits.

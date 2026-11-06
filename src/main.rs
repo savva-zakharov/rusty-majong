@@ -92,6 +92,10 @@ async fn main() {
     if args.iter().any(|a| a == "--dim") {
         game.set_dim(true);
     }
+    // `--new-dialog` opens the new-board dialog (for screenshots).
+    if args.iter().any(|a| a == "--new-dialog") {
+        game.open_picker();
+    }
     let mut fb = fb::Fb::new(W, H);
     let mut image = Image::gen_image_color(W as u16, H as u16, BLACK);
     let tex = Texture2D::from_image(&image);

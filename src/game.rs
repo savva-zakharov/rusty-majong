@@ -89,7 +89,13 @@ enum Action {
     Undo,
     Shuffle,
     New,
-    Layout,
+    /// New-board dialog: deal the chosen layout.
+    NewYes,
+    /// New-board dialog: keep the current board.
+    NewNo,
+    /// New-board dialog: previous / next layout.
+    LayoutPrev,
+    LayoutNext,
     Tiles,
     Palette,
     Dim,
@@ -107,7 +113,6 @@ fn buttons() -> Vec<(&'static str, Action)> {
         ("[U]NDO", Action::Undo),
         ("[S]HUFFLE", Action::Shuffle),
         ("[N]EW", Action::New),
-        ("[L]AYOUT", Action::Layout),
         ("[T]ILES", Action::Tiles),
         ("[P]ALETTE", Action::Palette),
         ("[F] DIM", Action::Dim),
@@ -126,6 +131,7 @@ struct Button {
     label: &'static str,
     action: Action,
     text_x: i32,
+    text_y: i32,
     hit: (i32, i32, i32, i32), // x, y, w, h
 }
 
@@ -140,7 +146,7 @@ fn layout_buttons() -> Vec<Button> {
     let mut x = 4;
     let mut out: Vec<Button> = Vec::with_capacity(b.len());
     for (k, (label, action)) in b.into_iter().enumerate() {
-        out.push(Button { label, action, text_x: x, hit: (0, BAR_TOP, 0, H - BAR_TOP) });
+        out.push(Button { label, action, text_x: x, text_y: KEYS_Y, hit: (0, BAR_TOP, 0, H - BAR_TOP) });
         x += widths[k] + gap;
     }
     for k in 0..out.len() {
@@ -157,21 +163,40 @@ struct Dialog {
     title: &'static str,
     lines: Vec<String>,
     buttons: Vec<(&'static str, Action)>,
+    /// Layout picker (index of the layout shown): a `< NAME >` row and a
+    /// miniature of the layout, between the text lines and the buttons.
+    picker: Option<usize>,
 }
 
 const DIALOG_W: i32 = 252;
 /// Gap between dialog buttons, in pixels.
 const DIALOG_BUTTON_GAP: i32 = 18;
+/// Height of the layout picker's miniature, in pixels.
+const PREVIEW_H: i32 = 74;
+/// Width available to the miniature.
+const PREVIEW_W: i32 = DIALOG_W - 24;
+/// Distance of the picker's `<` / `>` arrows from the dialog's centre.
+const ARROW_DX: i32 = 64;
 
 impl Dialog {
     /// The dialog box: x, y, w, h. Rows: title, lines, a blank, the buttons.
     fn rect(&self) -> (i32, i32, i32, i32) {
-        let h = 22 + (self.lines.len() as i32 + 2) * 10 + 8;
+        let h = 22 + self.content_h() + 20 + 8;
         ((W - DIALOG_W) / 2, (BOARD_TOP + BOARD_BOT) / 2 - h / 2, DIALOG_W, h)
     }
 
+    /// Height of the text lines plus the picker, if any.
+    fn content_h(&self) -> i32 {
+        self.lines.len() as i32 * 10 + if self.picker.is_some() { 14 + PREVIEW_H + 4 } else { 0 }
+    }
+
+    /// y of the picker's `< NAME >` row.
+    fn picker_y(&self) -> i32 {
+        self.rect().1 + 22 + self.lines.len() as i32 * 10
+    }
+
     fn button_row_y(&self) -> i32 {
-        self.rect().1 + 22 + (self.lines.len() as i32 + 1) * 10
+        self.rect().1 + 22 + self.content_h() + 10
     }
 
     /// The buttons centred on their row, each with a padded hit area.
@@ -182,8 +207,17 @@ impl Dialog {
         let mut x = W / 2 - total / 2;
         let mut out = vec![];
         for (k, &(label, action)) in self.buttons.iter().enumerate() {
-            out.push(Button { label, action, text_x: x, hit: (x - 5, y - 4, widths[k] + 10, 15) });
+            out.push(Button { label, action, text_x: x, text_y: y, hit: (x - 5, y - 4, widths[k] + 10, 15) });
             x += widths[k] + DIALOG_BUTTON_GAP;
+        }
+        if self.picker.is_some() {
+            // Arrows either side of the layout name; each hit area runs from
+            // the dialog's edge to just inside the name, so they're easy to tap.
+            let py = self.picker_y();
+            let (dx, _, dw, _) = self.rect();
+            let (lx, rx) = (W / 2 - ARROW_DX, W / 2 + ARROW_DX);
+            out.push(Button { label: "<", action: Action::LayoutPrev, text_x: lx - 2, text_y: py, hit: (dx + 4, py - 4, lx + 10 - (dx + 4), 15) });
+            out.push(Button { label: ">", action: Action::LayoutNext, text_x: rx - 2, text_y: py, hit: (rx - 8, py - 4, dx + dw - 4 - (rx - 8), 15) });
         }
         out
     }
@@ -262,6 +296,8 @@ pub struct Game {
     bar_hover: Option<usize>,
     bar_flash: Option<(usize, f32)>,
     dialog_hover: Option<usize>,
+    /// New-board dialog open, showing this layout.
+    picker: Option<usize>,
     tile_sets: Vec<String>,
     tile_set: usize,
     /// Colour schemes loaded from assets/palettes/ (at least one).
@@ -317,6 +353,7 @@ impl Game {
             bar_hover: None,
             bar_flash: None,
             dialog_hover: None,
+            picker: None,
             tile_sets,
             tile_set,
             scheme: scheme % schemes.len(),
@@ -402,6 +439,14 @@ impl Game {
     /// Index of a layout by (case-insensitive) name.
     pub fn layout_index(name: &str) -> Option<usize> {
         board::LAYOUTS.iter().position(|l| l.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Open the new-board dialog, starting on the current layout.
+    pub fn open_picker(&mut self) {
+        if self.picker.is_none() {
+            self.picker = Some(self.layout);
+            self.say("NEW BOARD? PICK A LAYOUT WITH < >, THEN [Y]ES OR [N]O.");
+        }
     }
 
     fn new_game(&mut self) {
@@ -615,21 +660,32 @@ impl Game {
         let (mx, my) = (mouse.0.floor() as i32, mouse.1.floor() as i32);
         self.hover = self.pick(mx, my);
 
-        let keys: [(&[KeyCode], Action); 12] = [
-            (&[KeyCode::H], Action::Hint),
-            (&[KeyCode::U, KeyCode::Z, KeyCode::Backspace], Action::Undo),
-            (&[KeyCode::S], Action::Shuffle),
-            (&[KeyCode::N], Action::New),
-            (&[KeyCode::L], Action::Layout),
-            (&[KeyCode::T], Action::Tiles),
-            (&[KeyCode::P], Action::Palette),
-            (&[KeyCode::F], Action::Dim),
-            (&[KeyCode::R], Action::Reload),
-            (&[KeyCode::C], Action::Crt),
-            (&[KeyCode::M], Action::Mute),
-            (&[KeyCode::Escape], Action::Quit),
-        ];
-        for (codes, action) in keys {
+        let keys: &[(&[KeyCode], Action)] = if self.picker.is_some() {
+            // The new-board dialog takes the keyboard while it is open.
+            &[
+                (&[KeyCode::Left, KeyCode::A], Action::LayoutPrev),
+                (&[KeyCode::Right, KeyCode::D], Action::LayoutNext),
+                (&[KeyCode::Y, KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space], Action::NewYes),
+                (&[KeyCode::N, KeyCode::Escape, KeyCode::Backspace], Action::NewNo),
+                (&[KeyCode::M], Action::Mute),
+                (&[KeyCode::C], Action::Crt),
+            ]
+        } else {
+            &[
+                (&[KeyCode::H], Action::Hint),
+                (&[KeyCode::U, KeyCode::Z, KeyCode::Backspace], Action::Undo),
+                (&[KeyCode::S], Action::Shuffle),
+                (&[KeyCode::N], Action::New),
+                (&[KeyCode::T], Action::Tiles),
+                (&[KeyCode::P], Action::Palette),
+                (&[KeyCode::F], Action::Dim),
+                (&[KeyCode::R], Action::Reload),
+                (&[KeyCode::C], Action::Crt),
+                (&[KeyCode::M], Action::Mute),
+                (&[KeyCode::Escape], Action::Quit),
+            ]
+        };
+        for &(codes, action) in keys {
             if codes.iter().any(|&k| is_key_pressed(k)) && !self.run(action) {
                 return false;
             }
@@ -670,6 +726,10 @@ impl Game {
             }
         }
 
+        if self.picker.is_some() {
+            self.hover = None; // the board is behind the new-board dialog
+            return true;
+        }
         if is_mouse_button_pressed(MouseButton::Left) && self.state != State::Won {
             self.click(self.hover);
         }
@@ -681,6 +741,14 @@ impl Game {
 
     /// The pop-up for the current state, if any.
     fn dialog(&self) -> Option<Dialog> {
+        if let Some(idx) = self.picker {
+            return Some(Dialog {
+                title: "-- NEW BOARD? --",
+                lines: vec![],
+                buttons: vec![("[Y]ES", Action::NewYes), ("[N]O", Action::NewNo)],
+                picker: Some(idx),
+            });
+        }
         match self.state {
             State::Won => {
                 let mut buttons = vec![("[N] NEW BOARD", Action::New)];
@@ -691,12 +759,14 @@ impl Game {
                     title: "** ALL TILES CLEARED **",
                     lines: vec![format!("TIME {}", fmt_time(self.elapsed))],
                     buttons,
+                    picker: None,
                 })
             }
             State::Stuck => Some(Dialog {
                 title: "-- NO MOVES LEFT --",
                 lines: vec!["THE BOARD IS LOCKED.".into()],
                 buttons: vec![("[S]HUFFLE", Action::Shuffle), ("[U]NDO", Action::Undo), ("[N]EW", Action::New)],
+                picker: None,
             }),
             State::Playing => None,
         }
@@ -708,8 +778,23 @@ impl Game {
             Action::Hint => self.show_hint(),
             Action::Undo => self.undo(),
             Action::Shuffle => self.reshuffle(),
-            Action::New => self.new_game(),
-            Action::Layout => self.set_layout(self.layout + 1),
+            Action::New => self.open_picker(),
+            Action::NewYes => {
+                if let Some(idx) = self.picker.take() {
+                    self.set_layout(idx);
+                }
+            }
+            Action::NewNo => {
+                if self.picker.take().is_some() {
+                    self.say("KEPT THE CURRENT BOARD.");
+                }
+            }
+            Action::LayoutPrev | Action::LayoutNext => {
+                if let Some(idx) = self.picker {
+                    let n = board::LAYOUTS.len();
+                    self.picker = Some(if action == Action::LayoutNext { (idx + 1) % n } else { (idx + n - 1) % n });
+                }
+            }
             Action::Tiles => self.asset_request = Some((self.tile_set + 1) % self.tile_sets.len().max(1)),
             Action::Palette => {
                 self.scheme = (self.scheme + 1) % self.schemes.len();
@@ -982,7 +1067,7 @@ impl Game {
             let pressed = self.bar_flash.map_or(false, |(f, _)| f == k);
             // MUTE shows in red while sound is off.
             let normal = if b.action == Action::Mute && self.muted { RED } else { DKGREEN };
-            draw_button(fb, b.label, b.text_x, KEYS_Y, normal, self.bar_hover == Some(k), pressed);
+            draw_button(fb, b.label, b.text_x, b.text_y, normal, self.bar_hover == Some(k), pressed);
         }
     }
 }
@@ -1024,9 +1109,50 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
     for (k, l) in d.lines.iter().enumerate() {
         fb.text_center(W / 2, y + 22 + k as i32 * 10, l, GREEN, AMBER);
     }
-    let row_y = d.button_row_y();
+    if let Some(idx) = d.picker {
+        let py = d.picker_y();
+        fb.text_center(W / 2, py, board::LAYOUTS[idx].name, AMBER, AMBER);
+        let count = format!("{}/{}", idx + 1, board::LAYOUTS.len());
+        fb.text(x + w - 8 - Fb::text_w(&count) + 1, y + 8, &count, DKGREEN);
+        draw_layout_preview(fb, idx, W / 2, py + 14 + PREVIEW_H / 2);
+    }
     for (k, b) in d.layout_buttons().iter().enumerate() {
-        draw_button(fb, b.label, b.text_x, row_y, GREEN, hover == Some(k), false);
+        draw_button(fb, b.label, b.text_x, b.text_y, GREEN, hover == Some(k), false);
+    }
+}
+
+/// A small abstract map of a layout, centred on (cx, cy): one block per tile,
+/// higher layers nudged up-right and drawn in brighter colours, each with a
+/// background-coloured rim so the stacking reads.
+fn draw_layout_preview(fb: &mut Fb, idx: usize, cx: i32, cy: i32) {
+    const LAYER_INK: [u8; 5] = [DKGREEN, GREEN, AMBER, IVORY, RED];
+    let pos = (board::LAYOUTS[idx].build)();
+    let (mut minx, mut maxx, mut miny, mut maxy) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for p in &pos {
+        minx = minx.min(p.gx);
+        maxx = maxx.max(p.gx + 2);
+        miny = miny.min(p.gy);
+        maxy = maxy.max(p.gy + 2);
+    }
+    let zmax = pos.iter().map(|p| p.z).max().unwrap_or(0);
+    // Pixels per half-tile, as large as fits; tiles are a little taller than wide.
+    let fit = |ux: i32| {
+        let uy = ux + ux / 3;
+        (maxx - minx) * ux + zmax * 2 <= PREVIEW_W && (maxy - miny) * uy + zmax * 2 <= PREVIEW_H
+    };
+    let ux = (2..=6).rev().find(|&u| fit(u)).unwrap_or(2);
+    let uy = ux + ux / 3;
+    let (bw, bh) = ((maxx - minx) * ux + zmax * 2, (maxy - miny) * uy + zmax * 2);
+    let (ox, oy) = (cx - bw / 2, cy - bh / 2 + zmax * 2);
+    let mut order: Vec<usize> = (0..pos.len()).collect();
+    order.sort_by_key(|&i| (pos[i].z, pos[i].gy - pos[i].gx, pos[i].gy));
+    for i in order {
+        let p = pos[i];
+        let x = ox + (p.gx - minx) * ux + p.z * 2;
+        let y = oy + (p.gy - miny) * uy - p.z * 2;
+        let c = LAYER_INK[(p.z as usize).min(LAYER_INK.len() - 1)];
+        fb.rect(x - 1, y - 1, 2 * ux + 1, 2 * uy + 1, BG);
+        fb.rect(x, y, 2 * ux - 1, 2 * uy - 1, c);
     }
 }
 
@@ -1168,6 +1294,43 @@ mod tests {
         let at = |steps: f32| chars_shown("AB CD", steps);
         assert_eq!([at(0.5), at(1.0), at(2.0), at(3.0), at(4.9), at(5.0), at(6.0)], [0, 1, 2, 3, 3, 4, 5]);
         assert_eq!(at(100.0), 5);
+    }
+
+    #[test]
+    fn new_board_dialog_picks_a_layout_or_keeps_the_board() {
+        let mut g = test_game();
+        let faces = g.faces.clone();
+        // NO keeps the board as it was.
+        g.run(Action::New);
+        assert_eq!(g.picker, Some(0));
+        assert!(g.dialog().is_some_and(|d| d.picker == Some(0)));
+        g.run(Action::NewNo);
+        assert_eq!(g.picker, None);
+        assert_eq!(g.faces, faces);
+        // Arrows wrap both ways; YES deals the chosen layout.
+        g.run(Action::New);
+        g.run(Action::LayoutPrev);
+        assert_eq!(g.picker, Some(board::LAYOUTS.len() - 1));
+        g.run(Action::LayoutNext);
+        g.run(Action::LayoutNext);
+        g.run(Action::NewYes);
+        assert_eq!((g.picker, g.layout), (None, 1));
+        assert_eq!(g.remaining(), 144);
+        // The arrows and buttons sit inside the dialog without overlapping.
+        g.run(Action::New);
+        let d = g.dialog().unwrap();
+        let (x, y, w, h) = d.rect();
+        let bs = d.layout_buttons();
+        assert_eq!(bs.len(), 4);
+        for (k, b) in bs.iter().enumerate() {
+            let (bx, by, bw, bh) = b.hit;
+            assert!(bx >= x && by >= y && bx + bw <= x + w && by + bh <= y + h, "{} sticks out", b.label);
+            for c in &bs[k + 1..] {
+                let (cx, cy, cw, ch) = c.hit;
+                assert!(bx + bw <= cx || cx + cw <= bx || by + bh <= cy || cy + ch <= by, "{} overlaps {}", b.label, c.label);
+            }
+        }
+        assert!(y >= BOARD_TOP && y + h <= BOARD_BOT, "dialog taller than the board area");
     }
 
     #[test]
