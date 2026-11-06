@@ -27,6 +27,8 @@ const AFTER_SPACE_STEPS: f32 = 2.0;
 const CLICK_EVERY: usize = 2;
 /// Volume of the typing sounds.
 const CLICK_VOLUME: f32 = 0.5;
+/// Beat after a match message finishes typing before its enter sound plays, in seconds.
+const ENTER_DELAY: f32 = 0.15;
 
 /// Typing sounds: letter clicks and space sounds, one picked at random each time.
 #[derive(Default)]
@@ -199,6 +201,10 @@ pub struct Game {
     typed: usize,
     /// How many non-space characters of `msg` have been typed (for CLICK_EVERY).
     letters_typed: usize,
+    /// A match happened: play an enter sound once the message has finished typing.
+    enter_pending: bool,
+    /// Time since the message finished typing while an enter sound is pending.
+    enter_wait: f32,
     /// Typing sounds; empty = silent.
     sounds: TypeSounds,
     origin: (i32, i32),
@@ -240,6 +246,8 @@ impl Game {
             msg_t: 0.0,
             typed: 0,
             letters_typed: 0,
+            enter_pending: false,
+            enter_wait: 0.0,
             sounds: TypeSounds::default(),
             origin: (0, 0),
             state: State::Playing,
@@ -332,6 +340,8 @@ impl Game {
         self.msg_t = 0.0;
         self.typed = 0;
         self.letters_typed = 0;
+        // A pending enter sound waits for whichever message is on the line to finish.
+        self.enter_wait = 0.0;
     }
 
     pub fn set_sounds(&mut self, sounds: TypeSounds) {
@@ -341,6 +351,20 @@ impl Game {
     /// Characters of the current message revealed by the typewriter so far.
     fn shown_chars(&self) -> usize {
         chars_shown(&self.msg, self.msg_t * TYPE_CPS)
+    }
+
+    /// Play the pending enter sound once the message on the line is fully typed
+    /// (plus a short beat), like pressing Enter at the end of a line.
+    fn type_enter(&mut self, dt: f32) {
+        if !self.enter_pending || self.typed < self.msg.chars().count() {
+            return;
+        }
+        self.enter_wait += dt;
+        if self.enter_wait >= ENTER_DELAY {
+            play_random(&self.sounds.enters);
+            self.enter_pending = false;
+            self.enter_wait = 0.0;
+        }
     }
 
     /// Sound the characters the typewriter placed since last frame: a space
@@ -421,6 +445,7 @@ impl Game {
         self.t += dt;
         self.msg_t += dt;
         self.type_clicks();
+        self.type_enter(dt);
         if self.state == State::Playing {
             self.elapsed += dt;
         }
@@ -552,7 +577,7 @@ impl Game {
         self.history.push(Undo::Pair(a, b));
         self.selected = None;
         self.hint = None;
-        play_random(&self.sounds.enters);
+        self.enter_pending = true; // plays when the MATCH message is typed out
         for i in [a, b] {
             let (sx, sy) = self.screen_pos(i);
             self.ghosts.push(Ghost { x: sx, y: sy, t: 0.0 });
@@ -873,6 +898,31 @@ fn draw_tile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enter_sound_waits_for_the_match_message() {
+        let mut g = Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, 0);
+        let (a, b) = g.find_moves()[0];
+        g.remove_pair(a, b);
+        assert!(g.msg.starts_with("MATCH"), "{}", g.msg);
+        assert!(g.enter_pending);
+        let dt = 1.0 / 60.0;
+        // Still pending for as long as the message is being typed out...
+        let mut typing_time = 0.0;
+        while g.typed < g.msg.chars().count() {
+            g.msg_t += dt;
+            g.type_clicks();
+            g.type_enter(dt);
+            typing_time += dt;
+            assert!(g.enter_pending || g.typed == g.msg.chars().count());
+        }
+        assert!(typing_time > 0.3, "message typed suspiciously fast: {typing_time}s");
+        // ...then fires after the short beat.
+        for _ in 0..((ENTER_DELAY / dt) as usize + 2) {
+            g.type_enter(dt);
+        }
+        assert!(!g.enter_pending);
+    }
 
     #[test]
     fn letter_after_a_space_takes_twice_as_long() {

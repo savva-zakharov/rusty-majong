@@ -147,7 +147,9 @@ The command line makes typing sounds as it types out a message:
   overwhelming.
 - **After a space**, the next letter takes twice as long to appear, so words come out with a
   small pause between them.
-- **A successful match** plays one of `enter1.wav` to `enter3.wav`, picked at random.
+- **A successful match** plays one of `enter1.wav` to `enter3.wav`, picked at random, once the
+  MATCH message has finished typing, like pressing Enter at the end of a line. If another
+  message replaces it first, the sound waits for that one to finish instead.
 
 Each name is also tried capitalised (`Click1.wav`), because web servers are case-sensitive.
 There's at most one sound per frame, so fast typing doesn't stack up overlapping sounds. The
@@ -159,6 +161,7 @@ settings are at the top of `src/game.rs`:
 | `AFTER_SPACE_STEPS` | 2 | Steps the letter after a space takes (other characters take 1) |
 | `CLICK_EVERY` | 2 | Click on every Nth letter |
 | `CLICK_VOLUME` | 0.5 | Volume of all sounds (typing and match) |
+| `ENTER_DELAY` | 0.15 | Seconds between the end of the message and the enter sound |
 
 The sounds load in the background, so the board appears at once and typing is silent for the
 moment they take to arrive. Browsers only allow sound after the first tap, click or key press on
