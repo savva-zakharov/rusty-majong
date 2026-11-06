@@ -955,9 +955,10 @@ fn draw_tile(
     // (x, y) is the face's top-left; tile.png is anchored so its face lands there.
     // The three-level tile sprite is multiplied by a tint per state.
     // `bad` is already blink-gated by the caller, so a blocked click flashes the whole tile red.
+    // `hint` is blink-gated by the caller too, so hinted tiles flash the whole sprite.
     let tint = if bad || sel {
         TINT_SELECT
-    } else if hover {
+    } else if hover || hint {
         TINT_HOVER
     } else {
         TINT_NORMAL
@@ -968,10 +969,6 @@ fn draw_tile(
     if dim {
         // Dissolve the whole tile silhouette (sides included), not just the face.
         fb.dither_mask(tx, ty, &assets.tile, BG);
-    }
-    if hint {
-        fb.outline(x, y, FW, FH, AMBER);
-        fb.outline(x + 1, y + 1, FW - 2, FH - 2, AMBER);
     }
 }
 
