@@ -435,16 +435,7 @@ impl Game {
         self.particles.retain(|p| p.life > 0.0);
 
         let (mx, my) = (mouse.0.floor() as i32, mouse.1.floor() as i32);
-        let prev_hover = self.hover;
         self.hover = self.pick(mx, my);
-        // Moving onto a different tile types its name out on the command line.
-        if self.hover != prev_hover && self.state == State::Playing {
-            if let Some(i) = self.hover {
-                let tag = if self.free(i) { "" } else { " (BLOCKED)" };
-                let s = format!("{}{}", self.faces[i].name(), tag);
-                self.say(&s);
-            }
-        }
 
         let keys: [(&[KeyCode], Action); 11] = [
             (&[KeyCode::H], Action::Hint),
