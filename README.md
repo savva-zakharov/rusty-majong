@@ -140,11 +140,24 @@ cargo run -- --export-assets assets
 
 ## Sounds
 
-Each letter the command line types out plays a click, picked at random from
-`assets/sounds/click1.wav` to `click6.wav`. Each name is also tried capitalised (`Click1.wav`),
-because web servers are case-sensitive. Spaces are silent, and there's at most one click per
-frame, so fast typing doesn't stack up overlapping sounds. The volume (`CLICK_VOLUME`) and the
-typing speed (`TYPE_CPS`, in letters per second) are at the top of `src/game.rs`.
+The command line makes typing sounds as it types out a message:
+
+- **Spaces** play one of `assets/sounds/space1.wav` to `space3.wav`, picked at random.
+- **Letters** play one of `click1.wav` to `click6.wav`, but only every second letter, so it isn't
+  overwhelming.
+- **After a space**, the next letter takes twice as long to appear, so words come out with a
+  small pause between them.
+
+Each name is also tried capitalised (`Click1.wav`), because web servers are case-sensitive.
+There's at most one sound per frame, so fast typing doesn't stack up overlapping sounds. The
+settings are at the top of `src/game.rs`:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `TYPE_CPS` | 70 | Typing speed, in steps per second |
+| `AFTER_SPACE_STEPS` | 2 | Steps the letter after a space takes (other characters take 1) |
+| `CLICK_EVERY` | 2 | Click on every Nth letter |
+| `CLICK_VOLUME` | 0.5 | Volume of all typing sounds |
 
 The sounds load in the background, so the board appears at once and typing is silent for the
 moment they take to arrive. Browsers only allow sound after the first tap, click or key press on

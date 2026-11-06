@@ -73,14 +73,15 @@ async fn main() {
     let names = sets.iter().map(|s| s.name.clone()).collect();
     let mut game = game::Game::new(layout, assets, names, set, scheme);
     if args.iter().any(|a| a == "--sound-check") {
-        println!("loaded {} typing sounds", load_clicks(&root).await.len());
+        let s = load_type_sounds(&root).await;
+        println!("loaded {} click and {} space sounds", s.clicks.len(), s.spaces.len());
         return;
     }
     // Load the typing sounds in the background so the board appears at once
     // (decoding them can take seconds in a browser); typing is silent until then.
     let mut click_loader = shot.is_none().then(|| {
         let root = root.clone();
-        macroquad::experimental::coroutines::start_coroutine(async move { load_clicks(&root).await })
+        macroquad::experimental::coroutines::start_coroutine(async move { load_type_sounds(&root).await })
     });
     if demo || demo_end {
         game.demo_setup(if demo_end { 72 } else { 9 });
@@ -95,8 +96,8 @@ async fn main() {
 
     loop {
         if click_loader.as_ref().is_some_and(|c| c.is_done()) {
-            if let Some(clicks) = click_loader.take().and_then(|c| c.retrieve()) {
-                game.set_clicks(clicks);
+            if let Some(sounds) = click_loader.take().and_then(|c| c.retrieve()) {
+                game.set_sounds(sounds);
             }
         }
         let dt = get_frame_time().min(0.05);
@@ -148,23 +149,32 @@ async fn main() {
     }
 }
 
-/// Load the typing clicks `assets/sounds/click1.wav` .. `click6.wav`.
-/// Each name is also tried capitalised (`Click1.wav`), since web servers are
-/// case-sensitive. Missing or unreadable files are skipped.
-async fn load_clicks(root: &str) -> Vec<macroquad::audio::Sound> {
-    let mut clicks = vec![];
-    for n in 1..=6 {
-        for name in [format!("click{n}.wav"), format!("Click{n}.wav")] {
+/// Load the typing sounds: `assets/sounds/click1.wav` .. `click6.wav` and
+/// `space1.wav` .. `space3.wav`. Each name is also tried capitalised
+/// (`Click1.wav`), since web servers are case-sensitive. Missing files are skipped.
+async fn load_type_sounds(root: &str) -> game::TypeSounds {
+    let sounds = game::TypeSounds {
+        clicks: load_numbered(root, "click", 6).await,
+        spaces: load_numbered(root, "space", 3).await,
+    };
+    if sounds.clicks.is_empty() && sounds.spaces.is_empty() {
+        eprintln!("rusty-majong: no typing sounds found in {root}/sounds/");
+    }
+    sounds
+}
+
+async fn load_numbered(root: &str, stem: &str, count: usize) -> Vec<macroquad::audio::Sound> {
+    let cap = stem[..1].to_ascii_uppercase() + &stem[1..];
+    let mut out = vec![];
+    for n in 1..=count {
+        for name in [format!("{stem}{n}.wav"), format!("{cap}{n}.wav")] {
             if let Ok(s) = macroquad::audio::load_sound(&format!("{root}/sounds/{name}")).await {
-                clicks.push(s);
+                out.push(s);
                 break;
             }
         }
     }
-    if clicks.is_empty() {
-        eprintln!("rusty-majong: no typing sounds found in {root}/sounds/");
-    }
-    clicks
+    out
 }
 
 fn save_shot(fb: &fb::Fb, pal: &[palette::Rgb; palette::SLOTS], path: &str, k: i32) {

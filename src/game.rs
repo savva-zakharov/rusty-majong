@@ -18,10 +18,38 @@ const DEPTH: i32 = 4; // tile thickness in 2:1 iso steps
 const LX: i32 = 2 * DEPTH; // layer offset = one tile thickness
 const LY: i32 = DEPTH;
 const BOARD_TOP: i32 = 16;
-/// Typewriter speed of the command line, in characters per second.
+/// Typewriter speed of the command line, in typing steps per second. Each
+/// character takes one step; the letter after a space takes `AFTER_SPACE_STEPS`.
 const TYPE_CPS: f32 = 70.0;
-/// Volume of the per-letter typing clicks.
+/// Pause between a space and the next letter, in steps (normal letters take 1).
+const AFTER_SPACE_STEPS: f32 = 2.0;
+/// Only every Nth letter of a message clicks (spaces always make their sound).
+const CLICK_EVERY: usize = 2;
+/// Volume of the typing sounds.
 const CLICK_VOLUME: f32 = 0.5;
+
+/// Typing sounds: letter clicks and space sounds, one picked at random each time.
+#[derive(Default)]
+pub struct TypeSounds {
+    pub clicks: Vec<Sound>,
+    pub spaces: Vec<Sound>,
+}
+
+/// How many characters of `msg` the typewriter has placed after `steps` typing
+/// steps. A character appears when the steps so far reach its own duration:
+/// 1 step, or `AFTER_SPACE_STEPS` if the previous character was a space.
+fn chars_shown(msg: &str, steps: f32) -> usize {
+    let mut t = 0.0;
+    let mut prev_space = false;
+    for (n, ch) in msg.chars().enumerate() {
+        t += if prev_space { AFTER_SPACE_STEPS } else { 1.0 };
+        if t > steps {
+            return n;
+        }
+        prev_space = ch.is_whitespace();
+    }
+    msg.chars().count()
+}
 const BOARD_BOT: i32 = H - 28;
 const PROMPT_Y: i32 = H - 25;
 const RULE_Y: i32 = H - 15;
@@ -157,10 +185,12 @@ pub struct Game {
     t: f32,
     msg: String,
     msg_t: f32,
-    /// How many characters of `msg` have been typed out (and clicked) so far.
+    /// How many characters of `msg` have been typed out (and sounded) so far.
     typed: usize,
-    /// Typing click sounds; one is picked at random per letter. Empty = silent.
-    clicks: Vec<Sound>,
+    /// How many non-space characters of `msg` have been typed (for CLICK_EVERY).
+    letters_typed: usize,
+    /// Typing sounds; empty = silent.
+    sounds: TypeSounds,
     origin: (i32, i32),
     state: State,
     moves: usize,
@@ -199,7 +229,8 @@ impl Game {
             msg: String::new(),
             msg_t: 0.0,
             typed: 0,
-            clicks: vec![],
+            letters_typed: 0,
+            sounds: TypeSounds::default(),
             origin: (0, 0),
             state: State::Playing,
             moves: 0,
@@ -290,29 +321,40 @@ impl Game {
         self.msg = s.to_string();
         self.msg_t = 0.0;
         self.typed = 0;
+        self.letters_typed = 0;
     }
 
-    pub fn set_clicks(&mut self, clicks: Vec<Sound>) {
-        self.clicks = clicks;
+    pub fn set_sounds(&mut self, sounds: TypeSounds) {
+        self.sounds = sounds;
     }
 
     /// Characters of the current message revealed by the typewriter so far.
     fn shown_chars(&self) -> usize {
-        ((self.msg_t * TYPE_CPS) as usize).min(self.msg.chars().count())
+        chars_shown(&self.msg, self.msg_t * TYPE_CPS)
     }
 
-    /// Click once for the letters the typewriter placed since last frame.
-    /// At most one click per frame, and none for spaces.
+    /// Sound the characters the typewriter placed since last frame: a space
+    /// sound for a space, a click for every CLICK_EVERY-th letter. At most one
+    /// sound per frame (a space wins).
     fn type_clicks(&mut self) {
         let shown = self.shown_chars();
         if shown <= self.typed {
             return;
         }
-        let placed_letter = self.msg.chars().skip(self.typed).take(shown - self.typed).any(|c| !c.is_whitespace());
+        let (mut space, mut click) = (false, false);
+        for ch in self.msg.chars().skip(self.typed).take(shown - self.typed) {
+            if ch.is_whitespace() {
+                space = true;
+            } else {
+                click |= self.letters_typed % CLICK_EVERY == 0;
+                self.letters_typed += 1;
+            }
+        }
         self.typed = shown;
-        if placed_letter && !self.clicks.is_empty() {
-            let k = gen_range(0, self.clicks.len() as u32) as usize;
-            play_sound(&self.clicks[k], PlaySoundParams { looped: false, volume: CLICK_VOLUME });
+        let pool = if space { &self.sounds.spaces } else if click { &self.sounds.clicks } else { return };
+        if !pool.is_empty() {
+            let k = gen_range(0, pool.len() as u32) as usize;
+            play_sound(&pool[k], PlaySoundParams { looped: false, volume: CLICK_VOLUME });
         }
     }
 
@@ -829,6 +871,14 @@ fn draw_tile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn letter_after_a_space_takes_twice_as_long() {
+        // "AB CD": A@1, B@2, ' '@3, C@5 (doubled), D@6
+        let at = |steps: f32| chars_shown("AB CD", steps);
+        assert_eq!([at(0.5), at(1.0), at(2.0), at(3.0), at(4.9), at(5.0), at(6.0)], [0, 1, 2, 3, 3, 4, 5]);
+        assert_eq!(at(100.0), 5);
+    }
 
     #[test]
     fn bar_buttons_tile_the_bar_without_gaps() {
