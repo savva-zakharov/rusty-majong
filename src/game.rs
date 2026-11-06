@@ -8,6 +8,7 @@ use crate::palette::{self, *};
 use macroquad::input::{is_key_pressed, is_mouse_button_pressed, KeyCode, MouseButton};
 use macroquad::audio::{play_sound, PlaySoundParams, Sound};
 use macroquad::rand::gen_range;
+use std::collections::VecDeque;
 
 pub const W: i32 = 560;
 pub const H: i32 = 315;
@@ -29,6 +30,17 @@ const CLICK_EVERY: usize = 2;
 const CLICK_VOLUME: f32 = 0.5;
 /// Beat after a match message finishes typing before its enter sound plays, in seconds.
 const ENTER_DELAY: f32 = 0.15;
+/// Pause after a message has finished typing before the next queued one starts, in seconds.
+const MSG_GAP: f32 = 1.0;
+/// Most messages that can wait in the queue; beyond that the oldest waiting one is dropped.
+const MSG_QUEUE_MAX: usize = 4;
+
+/// A command-line message waiting its turn.
+struct Msg {
+    text: String,
+    /// Play an enter sound when this message has finished typing (successful match).
+    enter: bool,
+}
 
 /// Typing sounds: letter clicks and space sounds, one picked at random each time.
 #[derive(Default)]
@@ -260,10 +272,13 @@ pub struct Game {
     typed: usize,
     /// How many non-space characters of `msg` have been typed (for CLICK_EVERY).
     letters_typed: usize,
-    /// A match happened: play an enter sound once the message has finished typing.
-    enter_pending: bool,
-    /// Time since the message finished typing while an enter sound is pending.
-    enter_wait: f32,
+    /// The message on the line plays an enter sound once it has finished typing.
+    msg_enter: bool,
+    /// Time since the message on the line finished typing.
+    msg_done_t: f32,
+    /// Messages waiting for the line: each starts MSG_GAP after the previous one
+    /// has finished typing.
+    queue: VecDeque<Msg>,
     /// Typing sounds; empty = silent.
     sounds: TypeSounds,
     origin: (i32, i32),
@@ -308,8 +323,9 @@ impl Game {
             msg_t: 0.0,
             typed: 0,
             letters_typed: 0,
-            enter_pending: false,
-            enter_wait: 0.0,
+            msg_enter: false,
+            msg_done_t: MSG_GAP, // the (empty) line is free at once
+            queue: VecDeque::new(),
             sounds: TypeSounds::default(),
             origin: (0, 0),
             state: State::Playing,
@@ -408,13 +424,71 @@ impl Game {
         self.say(&s);
     }
 
+    /// Queue a message for the command line.
     fn say(&mut self, s: &str) {
-        self.msg = s.to_string();
+        self.queue_msg(s, false);
+    }
+
+    /// Queue a message that plays an enter sound once it has finished typing.
+    fn say_with_enter(&mut self, s: &str) {
+        self.queue_msg(s, true);
+    }
+
+    fn queue_msg(&mut self, s: &str, enter: bool) {
+        // Skip exact repeats of what is already on the line or last in the queue.
+        let last = self.queue.back().map_or(self.msg.as_str(), |m| m.text.as_str());
+        if last == s && !enter {
+            return;
+        }
+        self.queue.push_back(Msg { text: s.to_string(), enter });
+        while self.queue.len() > MSG_QUEUE_MAX {
+            self.queue.pop_front(); // keep the newest; the line itself always finishes
+        }
+    }
+
+    fn start_msg(&mut self, m: Msg) {
+        self.msg = m.text;
+        self.msg_enter = m.enter;
         self.msg_t = 0.0;
         self.typed = 0;
         self.letters_typed = 0;
-        // A pending enter sound waits for whichever message is on the line to finish.
-        self.enter_wait = 0.0;
+        self.msg_done_t = 0.0;
+    }
+
+    fn msg_finished(&self) -> bool {
+        self.typed >= self.msg.chars().count()
+    }
+
+    /// Advance the command line: type the current message (with its sounds),
+    /// play its enter sound after it finishes, and MSG_GAP after it finished
+    /// start the next queued message.
+    fn step_messages(&mut self, dt: f32) {
+        self.msg_t += dt;
+        self.type_clicks();
+        if !self.msg_finished() {
+            return;
+        }
+        self.msg_done_t += dt;
+        if self.msg_enter && self.msg_done_t >= ENTER_DELAY {
+            play_random(&self.sounds.enters);
+            self.msg_enter = false;
+        }
+        if self.msg_done_t >= MSG_GAP {
+            if let Some(m) = self.queue.pop_front() {
+                self.start_msg(m);
+            }
+        }
+    }
+
+    /// Show the newest queued message at once, fully typed (screenshots).
+    fn show_latest_now(&mut self) {
+        if let Some(m) = self.queue.pop_back() {
+            self.queue.clear();
+            self.start_msg(m);
+        }
+        self.msg_t = 99.0;
+        self.typed = self.msg.chars().count();
+        self.msg_enter = false;
     }
 
     pub fn set_sounds(&mut self, sounds: TypeSounds) {
@@ -424,20 +498,6 @@ impl Game {
     /// Characters of the current message revealed by the typewriter so far.
     fn shown_chars(&self) -> usize {
         chars_shown(&self.msg, self.msg_t * TYPE_CPS)
-    }
-
-    /// Play the pending enter sound once the message on the line is fully typed
-    /// (plus a short beat), like pressing Enter at the end of a line.
-    fn type_enter(&mut self, dt: f32) {
-        if !self.enter_pending || self.typed < self.msg.chars().count() {
-            return;
-        }
-        self.enter_wait += dt;
-        if self.enter_wait >= ENTER_DELAY {
-            play_random(&self.sounds.enters);
-            self.enter_pending = false;
-            self.enter_wait = 0.0;
-        }
     }
 
     /// Sound the characters the typewriter placed since last frame: a space
@@ -516,9 +576,7 @@ impl Game {
     /// Returns false when the player wants to quit.
     pub fn update(&mut self, dt: f32, mouse: (f32, f32)) -> bool {
         self.t += dt;
-        self.msg_t += dt;
-        self.type_clicks();
-        self.type_enter(dt);
+        self.step_messages(dt);
         if self.state == State::Playing {
             self.elapsed += dt;
         }
@@ -690,7 +748,6 @@ impl Game {
         self.history.push(Undo::Pair(a, b));
         self.selected = None;
         self.hint = None;
-        self.enter_pending = true; // plays when the MATCH message is typed out
         for i in [a, b] {
             let (sx, sy) = self.screen_pos(i);
             self.ghosts.push(Ghost { x: sx, y: sy, t: 0.0 });
@@ -711,13 +768,13 @@ impl Game {
         let left = self.remaining();
         if left == 0 {
             self.state = State::Won;
-            self.say("ALL TILES CLEARED. WELL PLAYED.");
+            self.say_with_enter("ALL TILES CLEARED. WELL PLAYED.");
         } else if self.moves == 0 {
             self.state = State::Stuck;
-            self.say("NO MOVES LEFT. [S]HUFFLE, [U]NDO OR [N]EW.");
+            self.say_with_enter("NO MOVES LEFT. [S]HUFFLE, [U]NDO OR [N]EW.");
         } else {
             let s = format!("MATCH. {} TILES LEFT, {} MOVES OPEN.", left, self.moves);
-            self.say(&s);
+            self.say_with_enter(&s);
         }
     }
 
@@ -806,8 +863,8 @@ impl Game {
             self.hint_t = 99.0;
             let s = format!("SELECTED {}", self.faces[a].name());
             self.say(&s);
-            self.msg_t = 99.0;
         }
+        self.show_latest_now();
         // Show a blocked-tile flash too (topmost blocked tile in draw order).
         if let Some(&i) = self.order.iter().rev().find(|&&i| self.alive[i] && !self.free(i)) {
             self.bad = Some(i);
@@ -1012,29 +1069,73 @@ mod tests {
         assert!(g.dialog().is_none());
     }
 
+    fn test_game() -> Game {
+        Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, vec![palette::builtin()], 0)
+    }
+
+    const DT: f32 = 1.0 / 60.0;
+
+    #[test]
+    fn queued_messages_type_fully_one_after_another_with_a_gap() {
+        let mut g = test_game();
+        g.say("FIRST MESSAGE");
+        g.say("SECOND");
+        // Run until FIRST is on the line.
+        for _ in 0..600 {
+            g.step_messages(DT);
+            if g.msg == "FIRST MESSAGE" {
+                break;
+            }
+        }
+        assert_eq!(g.msg, "FIRST MESSAGE");
+        // It types out completely, then the line waits MSG_GAP before SECOND starts.
+        let mut finished_at = None;
+        let mut t = 0.0;
+        while g.msg == "FIRST MESSAGE" {
+            g.step_messages(DT);
+            t += DT;
+            if finished_at.is_none() && g.msg_finished() {
+                finished_at = Some(t);
+            }
+            assert!(t < 10.0, "SECOND never started");
+        }
+        assert_eq!(g.msg, "SECOND");
+        let gap = t - finished_at.expect("FIRST finished typing");
+        assert!(gap >= MSG_GAP - DT && gap <= MSG_GAP + 2.0 * DT, "gap was {gap}s");
+    }
+
+    #[test]
+    fn queue_is_capped_and_skips_repeats() {
+        let mut g = test_game();
+        for i in 0..10 {
+            g.say(&format!("MSG {i}"));
+        }
+        g.say("MSG 9");
+        assert_eq!(g.queue.len(), MSG_QUEUE_MAX);
+        assert_eq!(g.queue.back().map(|m| m.text.as_str()), Some("MSG 9"));
+    }
+
     #[test]
     fn enter_sound_waits_for_the_match_message() {
-        let mut g = Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, vec![palette::builtin()], 0);
+        let mut g = test_game();
         let (a, b) = g.find_moves()[0];
         g.remove_pair(a, b);
-        assert!(g.msg.starts_with("MATCH"), "{}", g.msg);
-        assert!(g.enter_pending);
-        let dt = 1.0 / 60.0;
-        // Still pending for as long as the message is being typed out...
-        let mut typing_time = 0.0;
-        while g.typed < g.msg.chars().count() {
-            g.msg_t += dt;
-            g.type_clicks();
-            g.type_enter(dt);
-            typing_time += dt;
-            assert!(g.enter_pending || g.typed == g.msg.chars().count());
+        // The deal message types first; MATCH waits its turn, carrying the enter sound.
+        let mut saw_match = false;
+        for _ in 0..1200 {
+            g.step_messages(DT);
+            if g.msg.starts_with("MATCH") {
+                saw_match = true;
+                if !g.msg_finished() {
+                    assert!(g.msg_enter, "enter sound fired before MATCH finished typing");
+                }
+                if !g.msg_enter {
+                    break;
+                }
+            }
         }
-        assert!(typing_time > 0.3, "message typed suspiciously fast: {typing_time}s");
-        // ...then fires after the short beat.
-        for _ in 0..((ENTER_DELAY / dt) as usize + 2) {
-            g.type_enter(dt);
-        }
-        assert!(!g.enter_pending);
+        assert!(saw_match, "MATCH message never reached the line");
+        assert!(!g.msg_enter, "enter sound never fired");
     }
 
     #[test]

@@ -141,6 +141,15 @@ placeholders (existing files are kept unless you add `--force`):
 cargo run -- --export-assets assets
 ```
 
+## Command line
+
+Messages on the command line (the `>` prompt) wait their turn in a queue. Each one types out
+completely, and the next starts 1 second after it finishes, so quick clicks don't cut each other
+off. If you select two tiles quickly, the first tile's name is typed in full before the second
+starts. At most 4 messages wait in the queue; beyond that the oldest waiting one is dropped, so
+the line never falls far behind. An exact repeat of the last message is skipped. The gap
+(`MSG_GAP`) and the queue length (`MSG_QUEUE_MAX`) are at the top of `src/game.rs`.
+
 ## Sounds
 
 The command line makes typing sounds as it types out a message:
@@ -150,9 +159,8 @@ The command line makes typing sounds as it types out a message:
   overwhelming.
 - **After a space**, the next letter takes twice as long to appear, so words come out with a
   small pause between them.
-- **A successful match** plays one of `enter1.wav` to `enter3.wav`, picked at random, once the
-  MATCH message has finished typing, like pressing Enter at the end of a line. If another
-  message replaces it first, the sound waits for that one to finish instead.
+- **A successful match** plays one of `enter1.wav` to `enter3.wav`, picked at random, once its
+  MATCH message has finished typing, like pressing Enter at the end of a line.
 
 Each name is also tried capitalised (`Click1.wav`), because web servers are case-sensitive.
 There's at most one sound per frame, so fast typing doesn't stack up overlapping sounds. The
