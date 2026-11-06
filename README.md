@@ -83,8 +83,8 @@ the bar and reaches halfway to its neighbours, to make it easy to tap. The web v
 `QUIT`.
 
 `[N]EW` asks first. The **NEW BOARD?** dialog shows the layout's name, with `<` and `>` either
-side to step through the layouts, and a small map of it: one block per tile, with higher layers
-nudged up and to the right in brighter colours (green, then amber, ivory and red). `[Y]ES` deals
+side to step through the layouts, and a small top-down map of it: one block per tile, coloured by
+height, with higher layers brighter (dark green, then green, amber, ivory and red). `[Y]ES` deals
 a new board on that layout; `[N]O` closes the dialog and keeps the current board. On a keyboard,
 `←` / `→` (or `A` / `D`) change the layout, `Y`, `Enter` or `Space` confirm, and `N`, `Esc` or
 `Backspace` cancel. While it's open, the board behind it ignores clicks.

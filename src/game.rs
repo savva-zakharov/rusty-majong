@@ -1121,9 +1121,9 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
     }
 }
 
-/// A small abstract map of a layout, centred on (cx, cy): one block per tile,
-/// higher layers nudged up-right and drawn in brighter colours, each with a
-/// background-coloured rim so the stacking reads.
+/// A small abstract map of a layout, centred on (cx, cy), seen straight from
+/// above: one block per tile, coloured by height (higher layers brighter and
+/// drawn on top), each with a background-coloured rim so tile edges read.
 fn draw_layout_preview(fb: &mut Fb, idx: usize, cx: i32, cy: i32) {
     const LAYER_INK: [u8; 5] = [DKGREEN, GREEN, AMBER, IVORY, RED];
     let pos = (board::LAYOUTS[idx].build)();
@@ -1134,22 +1134,16 @@ fn draw_layout_preview(fb: &mut Fb, idx: usize, cx: i32, cy: i32) {
         miny = miny.min(p.gy);
         maxy = maxy.max(p.gy + 2);
     }
-    let zmax = pos.iter().map(|p| p.z).max().unwrap_or(0);
     // Pixels per half-tile, as large as fits; tiles are a little taller than wide.
-    let fit = |ux: i32| {
-        let uy = ux + ux / 3;
-        (maxx - minx) * ux + zmax * 2 <= PREVIEW_W && (maxy - miny) * uy + zmax * 2 <= PREVIEW_H
-    };
+    let fit = |ux: i32| (maxx - minx) * ux <= PREVIEW_W && (maxy - miny) * (ux + ux / 3) <= PREVIEW_H;
     let ux = (2..=6).rev().find(|&u| fit(u)).unwrap_or(2);
     let uy = ux + ux / 3;
-    let (bw, bh) = ((maxx - minx) * ux + zmax * 2, (maxy - miny) * uy + zmax * 2);
-    let (ox, oy) = (cx - bw / 2, cy - bh / 2 + zmax * 2);
+    let (ox, oy) = (cx - (maxx - minx) * ux / 2, cy - (maxy - miny) * uy / 2);
     let mut order: Vec<usize> = (0..pos.len()).collect();
-    order.sort_by_key(|&i| (pos[i].z, pos[i].gy - pos[i].gx, pos[i].gy));
+    order.sort_by_key(|&i| pos[i].z); // lower layers first, so higher ones cover them
     for i in order {
         let p = pos[i];
-        let x = ox + (p.gx - minx) * ux + p.z * 2;
-        let y = oy + (p.gy - miny) * uy - p.z * 2;
+        let (x, y) = (ox + (p.gx - minx) * ux, oy + (p.gy - miny) * uy);
         let c = LAYER_INK[(p.z as usize).min(LAYER_INK.len() - 1)];
         fb.rect(x - 1, y - 1, 2 * ux + 1, 2 * uy + 1, BG);
         fb.rect(x, y, 2 * ux - 1, 2 * uy - 1, c);
