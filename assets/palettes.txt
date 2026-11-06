@@ -1,0 +1,9 @@
+# Colour schemes, one per line: a name in assets/palettes/ (without .png).
+# Each is an 8x2 PNG: top row bright colours, bottom row their darkened
+# versions. Press P in-game to cycle; the first is the default.
+phosphor
+ivory
+amber
+cga
+sunset
+ice

@@ -4,7 +4,7 @@ use crate::art::{self, Face, FH, FW};
 use crate::sprites::{Assets, FACE_OX, FACE_OY, TILE_H, TILE_W};
 use crate::board::{self, Nb, Pos};
 use crate::fb::Fb;
-use crate::palette::*;
+use crate::palette::{self, *};
 use macroquad::input::{is_key_pressed, is_mouse_button_pressed, KeyCode, MouseButton};
 use macroquad::audio::{play_sound, PlaySoundParams, Sound};
 use macroquad::rand::gen_range;
@@ -248,6 +248,8 @@ pub struct Game {
     dialog_hover: Option<usize>,
     tile_sets: Vec<String>,
     tile_set: usize,
+    /// Colour schemes loaded from assets/palettes/ (at least one).
+    schemes: Vec<Scheme>,
     scheme: usize,
     dim: bool,
     elapsed: f32,
@@ -270,7 +272,8 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(layout: usize, assets: Assets, tile_sets: Vec<String>, tile_set: usize, scheme: usize) -> Self {
+    pub fn new(layout: usize, assets: Assets, tile_sets: Vec<String>, tile_set: usize, schemes: Vec<Scheme>, scheme: usize) -> Self {
+        let schemes = if schemes.is_empty() { vec![palette::builtin()] } else { schemes };
         let mut g = Game {
             layout: 0,
             pos: vec![],
@@ -296,7 +299,8 @@ impl Game {
             dialog_hover: None,
             tile_sets,
             tile_set,
-            scheme: scheme % SCHEMES.len(),
+            scheme: scheme % schemes.len(),
+            schemes,
             dim: false,
             elapsed: 0.0,
             t: 0.0,
@@ -325,9 +329,20 @@ impl Game {
         self.say(&s);
     }
 
+    /// Replace the colour schemes (after a reload), keeping the current one by
+    /// name if it still exists.
+    pub fn set_schemes(&mut self, schemes: Vec<Scheme>) {
+        if schemes.is_empty() {
+            return;
+        }
+        let current = self.schemes[self.scheme].name.clone();
+        self.scheme = schemes.iter().position(|s| s.name == current).unwrap_or(0);
+        self.schemes = schemes;
+    }
+
     /// RGB for each palette slot in the active colour scheme.
     pub fn palette(&self) -> &[Rgb; SLOTS] {
-        &SCHEMES[self.scheme].rgb
+        &self.schemes[self.scheme].rgb
     }
 
     fn tile_set_name(&self) -> &str {
@@ -626,8 +641,8 @@ impl Game {
             Action::Layout => self.set_layout(self.layout + 1),
             Action::Tiles => self.asset_request = Some((self.tile_set + 1) % self.tile_sets.len().max(1)),
             Action::Palette => {
-                self.scheme = (self.scheme + 1) % SCHEMES.len();
-                let s = format!("COLOURS: {}.", SCHEMES[self.scheme].name);
+                self.scheme = (self.scheme + 1) % self.schemes.len();
+                let s = format!("COLOURS: {}.", self.schemes[self.scheme].name);
                 self.say(&s);
             }
             Action::Dim => {
@@ -867,7 +882,7 @@ impl Game {
             "V0.3 {} / {} / {}",
             board::LAYOUTS[self.layout].name,
             self.tile_set_name(),
-            SCHEMES[self.scheme].name
+            self.schemes[self.scheme].name
         );
         fb.text(x + 6, 4, &name, DKGREEN);
         let stats = format!(
@@ -978,7 +993,7 @@ mod tests {
 
     #[test]
     fn dialog_buttons_fit_inside_the_box_without_overlapping() {
-        let mut g = Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, 0);
+        let mut g = Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, vec![palette::builtin()], 0);
         for state in [State::Won, State::Stuck] {
             g.state = state;
             let d = g.dialog().expect("dialog");
@@ -999,7 +1014,7 @@ mod tests {
 
     #[test]
     fn enter_sound_waits_for_the_match_message() {
-        let mut g = Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, 0);
+        let mut g = Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, vec![palette::builtin()], 0);
         let (a, b) = g.find_moves()[0];
         g.remove_pair(a, b);
         assert!(g.msg.starts_with("MATCH"), "{}", g.msg);

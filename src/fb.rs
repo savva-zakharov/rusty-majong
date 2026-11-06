@@ -117,14 +117,7 @@ impl Fb {
     pub fn shade(&mut self, x: i32, y: i32, w: i32, h: i32) {
         for yy in y..y + h {
             for xx in x..x + w {
-                let c = match self.get(xx, yy) {
-                    IVORY => IVORY_SH,
-                    GREEN => DKGREEN,
-                    AMBER => DKAMBER,
-                    RED => DKRED,
-                    BODY => BODY_SH,
-                    c => c,
-                };
+                let c = shade_of(self.get(xx, yy));
                 self.pset(xx, yy, c);
             }
         }

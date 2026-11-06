@@ -68,10 +68,13 @@ async fn main() {
     let set = arg("--tiles")
         .and_then(|n| sets.iter().position(|s| s.name.eq_ignore_ascii_case(&n)))
         .unwrap_or(0);
-    let scheme = arg("--colours").and_then(|n| palette::scheme_index(&n)).unwrap_or(0);
+    let schemes = palette::load(&root).await;
+    let scheme = arg("--colours")
+        .and_then(|n| schemes.iter().position(|s| s.name.eq_ignore_ascii_case(&n)))
+        .unwrap_or(0);
     let assets = sprites::Assets::load_set(&root, &sets[set]).await;
     let names = sets.iter().map(|s| s.name.clone()).collect();
-    let mut game = game::Game::new(layout, assets, names, set, scheme);
+    let mut game = game::Game::new(layout, assets, names, set, schemes, scheme);
     if args.iter().any(|a| a == "--sound-check") {
         let s = load_type_sounds(&root).await;
         println!("loaded {} click, {} space and {} enter sounds", s.clicks.len(), s.spaces.len(), s.enters.len());
@@ -116,6 +119,8 @@ async fn main() {
             let sets = sprites::list_sets(&root).await;
             let idx = want.min(sets.len() - 1);
             let assets = sprites::Assets::load_set(&root, &sets[idx]).await;
+            // R also re-reads the palettes, so edited palette PNGs show up live.
+            game.set_schemes(palette::load(&root).await);
             game.set_assets(assets, idx, sets.iter().map(|s| s.name.clone()).collect());
         }
         game.render(&mut fb);

@@ -115,16 +115,15 @@ game colours the tile by multiplying it with a tint for each state:
 | Hover (free tile) | amber | dark amber | the tile body colour |
 | Selected | red | dark red | the tile body colour |
 
-Each dark colour is its tint × 127/255, and it's part of the palette, so the screen still only
-uses palette colours. The tints are `TINT_NORMAL`, `TINT_HOVER` and `TINT_SELECT` in
-`src/palette.rs`. The tile body colour depends on the colour scheme: black in the dark schemes,
-ivory in IVORY. So the same three-tone tile gives black tiles on a dark screen and ivory tiles in
-light mode.
+Each colour comes from the current palette (see Colour schemes below). White takes a colour from
+the palette's top row, and grey takes the darkened colour under it. The tile body colour depends
+on the palette: black in the dark ones, ivory in IVORY. So the same three-tone tile gives black
+tiles on a dark screen and ivory tiles in light mode.
 
 ### faces.png: palette colours
 
-Draw faces in the colours of the default PHOSPHOR scheme in `src/palette.rs`. Every pixel snaps to
-the closest of them. Leave the background transparent, since faces are drawn on top of the tile.
+Draw faces in the colours of the default PHOSPHOR palette (`assets/palettes/phosphor.png`). Every
+pixel snaps to the closest of them. Leave the background transparent, since faces are drawn on top of the tile.
 Other colour schemes recolour the faces automatically (see below).
 
 ### Both files
@@ -197,11 +196,32 @@ Two example sets are included. Both have only a `tile.png`:
 
 ## Colour schemes
 
-`P` cycles through colour schemes. A scheme is a palette swap: it gives new colours to the same 14
-palette slots, so the HUD, the tiles, the built-in art and your PNGs all recolour together. The
-background and the tile body are palette slots too, which is what makes a light mode possible.
+`P` cycles through colour schemes (palettes). A palette is an **8 × 2 pixel PNG** in
+`assets/palettes/`, so you can edit it in any paint program. The top row holds 8 bright colours
+and the bottom row their darkened versions:
 
-| Scheme | Background | Tile body | Primary | Highlight (hover) | Selection |
+| Column | Top row (bright) | Bottom row (dark) |
+| --- | --- | --- |
+| 0 | light: built-in faces, light text | light shade |
+| 1 | primary: text, normal tiles | primary dark: grey parts of tiles, dashed rules |
+| 2 | red: selection, errors, ink | red dark |
+| 3 | highlight: hover, hints, prompt | highlight dark |
+| 4 | blue: ink | blue dark |
+| 5 | tile body (the black parts of `tile.png`) | tile body in shadow |
+| 6 | background | background lattice dots |
+| 7 | black ink | spare |
+
+The screen only ever uses these 16 colours. Switching palettes recolours everything at once: the
+HUD, the tiles, the built-in art and your PNGs. Shadows from raised tiles darken a pixel by moving
+it from the top row to the bottom row of its column. The background is the exception: its bottom
+row is the lattice, not a shade.
+
+`assets/palettes.txt` lists the palettes in order, one name per line (the file name without
+`.png`). The first is the default. As with tile sets, a list file is used because a browser can't
+list a folder. To add a palette, copy one of the PNGs, recolour it and add its name to the list.
+Pressing `R` reloads the palettes too, so you can see your edits right away.
+
+| Palette | Background | Tile body | Primary | Highlight | Selection |
 | --- | --- | --- | --- | --- | --- |
 | PHOSPHOR (default) | black | black | green | amber | red |
 | IVORY (light mode) | pale table | ivory | jade green | orange | crimson |
@@ -210,13 +230,14 @@ background and the tile body are palette slots too, which is what makes a light 
 | SUNSET | black | black | orange | yellow | pink |
 | ICE | black | black | sky blue | white | rose |
 
-IVORY looks like ordinary tiles: ivory faces, green backs, dark inks, on a light table. The `C`
-scanlines still work in light mode, but you may prefer them off there.
+Some things to keep in mind:
 
-Schemes are defined in `SCHEMES` in `src/palette.rs`. Each scheme sets its light, light-shade,
-primary, red, blue, highlight, lattice, background and tile body colours. The game works out the
-dark tile tints (colour × 127/255) and the shadowed tile body itself, and a test checks every
-scheme. The `BLACK` slot is always black, because it's the black ink in face art.
+- Keep column 7's top pixel black: it's the black ink in face art, such as the bird's eye.
+- A palette that's missing or not exactly 8 × 2 is skipped, with a message in the terminal. If
+  none load, the game uses a built-in copy of PHOSPHOR.
+- PHOSPHOR's colours are also built into the game, because `faces.png` is matched against them.
+  Editing `phosphor.png` changes how PHOSPHOR looks, but not how your face art is read. A test
+  checks that `phosphor.png` and the built-in copy match.
 
 Start with a particular set and scheme with `--tiles NAME` and `--colours NAME` (desktop only, for
 example `cargo run -- --tiles wireframe --colours amber`). The choice isn't saved between runs.
@@ -225,8 +246,8 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
 
 - Everything is drawn into a 560×315 palette-indexed framebuffer (93×39 text cells with a hand-made
   5×7 font), then scaled up with nearest-neighbour filtering to fill the window.
-- The palette has 14 slots, set in `src/palette.rs`. They cover ink colours, a background, a tile
-  body and a few shades. Colour schemes swap these colours.
+- The palette has 16 slots, loaded from an 8 × 2 PNG in `assets/palettes/`. They cover ink colours,
+  a background, a tile body and their darkened versions. Colour schemes swap these colours.
 - The projection is 2:1 pixel isometric. Each tile is extruded in 2px-by-1px steps (ivory, then
   green, then a dark base), and higher layers sit one tile-thickness up and to the right.
 - Every board is dealt by playing the game backwards, so it can always be solved (see

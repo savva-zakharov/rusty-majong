@@ -1,39 +1,65 @@
-//! A small, loud palette. Everything on screen is one of these indices.
+//! A small, loud palette. Everything on screen is one of 16 palette slots.
 //!
-//! Colour schemes are palette swaps: every scheme gives its own RGB for the
-//! same 11 slots, so all art (built-in, tile.png, faces.png) recolours at once.
-//! Slot names describe the default PHOSPHOR scheme; in other schemes read them
-//! by role (GREEN = primary, AMBER = highlight, RED = selection/error, ...).
+//! Palettes ("colour schemes") are 8x2 pixel PNGs in `assets/palettes/`, listed
+//! in `assets/palettes.txt`, so they can be edited in any paint program. The
+//! top row holds 8 bright colours and the bottom row their darkened versions:
 //!
-//! Tile sprites are three-level (white / grey / black) and are coloured by
-//! multiplying with a tint: white x tint = tint, grey (127) x tint = the tint's
-//! dark slot. Dark slots are computed with that exact multiplication per
-//! scheme, so the result is always a palette colour. Black pixels become the
-//! scheme's BODY colour: black in dark schemes, ivory in light ones.
+//! | col | top row (bright)              | bottom row (dark)                   |
+//! |-----|-------------------------------|-------------------------------------|
+//! | 0   | light: built-in faces, text   | light shade                         |
+//! | 1   | primary: text, normal tiles   | primary dark: grey tile parts       |
+//! | 2   | red: selection, errors, ink   | red dark                            |
+//! | 3   | highlight: hover, prompt      | highlight dark                      |
+//! | 4   | blue: ink                     | blue dark                           |
+//! | 5   | tile body (black tile tone)   | tile body in shadow                 |
+//! | 6   | background                    | background lattice dots             |
+//! | 7   | black ink                     | spare                               |
+//!
+//! Switching palettes swaps every colour at once: all art is stored as slots.
+//! Tile sprites are three-level (white / grey / black): white pixels take a
+//! tint's top-row colour, grey pixels the colour under it, black pixels the
+//! tile body. Cast shadows move a pixel from the top row to the bottom row.
 
-pub const BLACK: u8 = 0; // black ink in face art
-pub const IVORY: u8 = 1; // light: tile face (built-in faces), light text
-pub const IVORY_SH: u8 = 2; // shaded light
-pub const GREEN: u8 = 3; // primary: text + normal tile tint
-pub const DKGREEN: u8 = 4; // primary x grey
-pub const RED: u8 = 5; // selection tint, errors, ink
-pub const BLUE: u8 = 6; // ink
-pub const AMBER: u8 = 7; // highlight: hover tint, prompt
-pub const DIM: u8 = 8; // background lattice
-pub const DKRED: u8 = 9; // RED x grey
-pub const DKAMBER: u8 = 10; // AMBER x grey
-pub const BG: u8 = 11; // background ("the desk")
-pub const BODY: u8 = 12; // black tone of tile sprites: the tile's face/body colour
-pub const BODY_SH: u8 = 13; // BODY under a cast shadow
+pub const IVORY: u8 = 0;
+pub const GREEN: u8 = 1;
+pub const RED: u8 = 2;
+pub const AMBER: u8 = 3;
+pub const BLUE: u8 = 4;
+pub const BODY: u8 = 5;
+pub const BG: u8 = 6;
+pub const BLACK: u8 = 7;
+pub const IVORY_SH: u8 = 8;
+pub const DKGREEN: u8 = 9;
+pub const DKRED: u8 = 10;
+pub const DKAMBER: u8 = 11;
+pub const DKBLUE: u8 = 12;
+#[allow(dead_code)] // reached via shade_of(BODY)
+pub const BODY_SH: u8 = 13;
+pub const DIM: u8 = 14;
+#[allow(dead_code)]
+pub const SPARE: u8 = 15;
 
-pub const SLOTS: usize = 14;
-
-/// How much a cast shadow darkens the tile body (BODY_SH = BODY x this).
-const SHADOW: u8 = 200;
+pub const SLOTS: usize = 16;
+/// Width of a palette PNG; its height is 2.
+pub const COLS: usize = 8;
 pub type Rgb = [u8; 3];
 
 /// Grey level of the middle tone in three-level sprites.
 pub const GREY: u8 = 127;
+
+/// The darkened slot for a pixel under a cast shadow (bottom row of its column).
+/// Background stays background: its bottom row is the lattice, not a shade.
+pub fn shade_of(c: u8) -> u8 {
+    if (c as usize) < COLS && c != BG {
+        c + COLS as u8
+    } else {
+        c
+    }
+}
+
+/// Slots that face art (faces.png) can use. Background, lattice, tile body and
+/// spare are scheme roles, not art colours.
+pub const INK: [u8; 11] = [IVORY, GREEN, RED, AMBER, BLUE, BLACK, IVORY_SH, DKGREEN, DKRED, DKAMBER, DKBLUE];
 
 /// Software multiply of a colour by a grey level (0..=255).
 pub const fn mul(c: Rgb, g: u8) -> Rgb {
@@ -45,89 +71,107 @@ pub const fn mul(c: Rgb, g: u8) -> Rgb {
     ]
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Scheme {
-    pub name: &'static str,
+    pub name: String,
     pub rgb: [Rgb; SLOTS],
 }
 
-/// Base colours of a scheme; the dark slots are derived from them by `mul`.
-struct Base {
-    light: Rgb,
-    light_sh: Rgb,
-    primary: Rgb,
-    red: Rgb,
-    blue: Rgb,
-    highlight: Rgb,
-    lattice: Rgb,
-    bg: Rgb,
-    body: Rgb,
-}
-
-const fn scheme(name: &'static str, b: Base) -> Scheme {
-    Scheme {
-        name,
-        rgb: [
-            [0, 0, 0],
-            b.light,
-            b.light_sh,
-            b.primary,
-            mul(b.primary, GREY),
-            b.red,
-            b.blue,
-            b.highlight,
-            b.lattice,
-            mul(b.red, GREY),
-            mul(b.highlight, GREY),
-            b.bg,
-            b.body,
-            mul(b.body, SHADOW),
-        ],
-    }
-}
-
 const K: Rgb = [0, 0, 0];
+const P_LIGHT: Rgb = [0xF2, 0xE8, 0xCF];
+const P_PRIMARY: Rgb = [0x2E, 0xD8, 0x6A];
+const P_RED: Rgb = [0xEE, 0x25, 0x3A];
+const P_HIGHLIGHT: Rgb = [0xFF, 0xB0, 0x00];
+const P_BLUE: Rgb = [0x2A, 0x5C, 0xF0];
 
-/// `P` cycles through these in-game. The first is the default.
-pub const SCHEMES: &[Scheme] = &[
-    scheme("PHOSPHOR", Base {
-        light: [0xF2, 0xE8, 0xCF], light_sh: [0xBF, 0xAA, 0x80], primary: [0x2E, 0xD8, 0x6A],
-        red: [0xEE, 0x25, 0x3A], blue: [0x2A, 0x5C, 0xF0], highlight: [0xFF, 0xB0, 0x00],
-        lattice: [0x10, 0x2C, 0x1C], bg: K, body: K,
-    }),
-    // Light mode: ivory tiles with green backs on a pale table, dark inks.
-    scheme("IVORY", Base {
-        light: [0xFF, 0xFD, 0xF5], light_sh: [0xC9, 0xB6, 0x8E], primary: [0x1F, 0x7A, 0x4A],
-        red: [0xC8, 0x10, 0x2E], blue: [0x1F, 0x4F, 0xB8], highlight: [0xE0, 0x7B, 0x00],
-        lattice: [0xC9, 0xC0, 0xAB], bg: [0xE3, 0xDD, 0xCD], body: [0xF8, 0xF2, 0xE0],
-    }),
-    scheme("AMBER", Base {
-        light: [0xFF, 0xF1, 0xD0], light_sh: [0xB8, 0x8A, 0x3A], primary: [0xFF, 0xB0, 0x00],
-        red: [0xFF, 0x4D, 0x2E], blue: [0xFF, 0xD9, 0x8A], highlight: [0xFF, 0xF1, 0xD0],
-        lattice: [0x2A, 0x1C, 0x00], bg: K, body: K,
-    }),
-    scheme("CGA", Base {
-        light: [0xFF, 0xFF, 0xFF], light_sh: [0xAA, 0xAA, 0xAA], primary: [0x55, 0xFF, 0xFF],
-        red: [0xFF, 0x55, 0xFF], blue: [0x55, 0x55, 0xFF], highlight: [0xFF, 0xFF, 0x55],
-        lattice: [0x00, 0x2A, 0x2A], bg: K, body: K,
-    }),
-    scheme("SUNSET", Base {
-        light: [0xF7, 0xF7, 0xF2], light_sh: [0xB5, 0xA8, 0x9A], primary: [0xFF, 0x6B, 0x35],
-        red: [0xEE, 0x42, 0x66], blue: [0x3B, 0xCE, 0xAC], highlight: [0xFF, 0xD2, 0x3F],
-        lattice: [0x2B, 0x0F, 0x0A], bg: K, body: K,
-    }),
-    scheme("ICE", Base {
-        light: [0xE8, 0xF4, 0xFF], light_sh: [0x8F, 0xA8, 0xC0], primary: [0x5C, 0xC8, 0xFF],
-        red: [0xFF, 0x5C, 0x8A], blue: [0xB0, 0x8C, 0xFF], highlight: [0xFF, 0xFF, 0xFF],
-        lattice: [0x0A, 0x1A, 0x2A], bg: K, body: K,
-    }),
+/// Built-in PHOSPHOR palette (identical to assets/palettes/phosphor.png). It is
+/// the fallback when no palette file loads, and the reference faces.png is
+/// snapped to, so face art keeps its slots however the palette files change.
+pub const PALETTE: [Rgb; SLOTS] = [
+    P_LIGHT,
+    P_PRIMARY,
+    P_RED,
+    P_HIGHLIGHT,
+    P_BLUE,
+    K, // tile body
+    K, // background
+    K, // black ink
+    [0xBF, 0xAA, 0x80],
+    mul(P_PRIMARY, GREY),
+    mul(P_RED, GREY),
+    mul(P_HIGHLIGHT, GREY),
+    mul(P_BLUE, GREY),
+    K, // tile body in shadow
+    [0x10, 0x2C, 0x1C],
+    K,
 ];
 
-/// The default scheme's colours: what faces.png is snapped to on load and what
-/// `--export-assets` writes, so art is always authored against PHOSPHOR.
-pub const PALETTE: [Rgb; SLOTS] = SCHEMES[0].rgb;
+pub fn builtin() -> Scheme {
+    Scheme { name: "PHOSPHOR".into(), rgb: PALETTE }
+}
 
-pub fn scheme_index(name: &str) -> Option<usize> {
-    SCHEMES.iter().position(|s| s.name.eq_ignore_ascii_case(name))
+/// Palette from the RGBA bytes of an 8x2 image (row-major, top row first).
+/// Alpha is ignored: palette colours are always opaque.
+pub fn from_rgba(name: &str, rgba: &[u8]) -> Scheme {
+    let mut rgb = [K; SLOTS];
+    for (slot, px) in rgba.chunks_exact(4).take(SLOTS).enumerate() {
+        rgb[slot] = [px[0], px[1], px[2]];
+    }
+    Scheme { name: name.to_ascii_uppercase(), rgb }
+}
+
+/// Names listed in palettes.txt: one per line, `#` comments, letters, digits,
+/// `-` and `_` only; duplicates ignored.
+pub fn parse_list(list: &str) -> Vec<String> {
+    let mut names: Vec<String> = vec![];
+    for line in list.lines() {
+        let name = line.split('#').next().unwrap_or("").trim();
+        if name.is_empty() {
+            continue;
+        }
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            eprintln!("rusty-majong: palettes.txt: ignoring {name:?} (use letters, digits, - and _)");
+            continue;
+        }
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
+/// Load the palettes listed in `root/palettes.txt` from `root/palettes/<name>.png`
+/// (file system on desktop, HTTP on the web). Unreadable or wrong-sized files
+/// are skipped with a message; if none load, the built-in PHOSPHOR is used.
+pub async fn load(root: &str) -> Vec<Scheme> {
+    let root = root.trim_end_matches('/');
+    let list = macroquad::file::load_string(&format!("{root}/palettes.txt")).await.unwrap_or_default();
+    let mut schemes = vec![];
+    for name in parse_list(&list) {
+        let path = format!("{root}/palettes/{name}.png");
+        let Ok(bytes) = macroquad::file::load_file(&path).await else {
+            eprintln!("rusty-majong: palette {path} not found");
+            continue;
+        };
+        match decode(&bytes) {
+            Ok(rgba) => schemes.push(from_rgba(&name, &rgba)),
+            Err(e) => eprintln!("rusty-majong: palette {path}: {e}"),
+        }
+    }
+    if schemes.is_empty() {
+        schemes.push(builtin());
+    }
+    schemes
+}
+
+/// Decode an 8x2 palette PNG to RGBA.
+pub fn decode(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    use macroquad::prelude::{Image, ImageFormat};
+    let img = Image::from_file_with_format(bytes, Some(ImageFormat::Png)).map_err(|e| format!("{e:?}"))?;
+    if (img.width as usize, img.height as usize) != (COLS, 2) {
+        return Err(format!("is {}x{}, expected {COLS}x2", img.width, img.height));
+    }
+    Ok(img.bytes)
 }
 
 /// A tint for three-level sprites: (slot for white, slot for grey).
@@ -140,3 +184,45 @@ pub struct Tint {
 pub const TINT_NORMAL: Tint = Tint { full: GREEN, half: DKGREEN };
 pub const TINT_HOVER: Tint = Tint { full: AMBER, half: DKAMBER };
 pub const TINT_SELECT: Tint = Tint { full: RED, half: DKRED };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shipped() -> Vec<Scheme> {
+        let list = std::fs::read_to_string("assets/palettes.txt").expect("assets/palettes.txt");
+        parse_list(&list)
+            .iter()
+            .map(|n| {
+                let bytes = std::fs::read(format!("assets/palettes/{n}.png")).expect(n);
+                from_rgba(n, &decode(&bytes).unwrap_or_else(|e| panic!("{n}: {e}")))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shipped_palettes_load_and_phosphor_matches_builtin() {
+        let schemes = shipped();
+        assert!(schemes.len() >= 2);
+        assert_eq!(schemes[0], builtin(), "phosphor.png must equal the built-in PALETTE");
+        for s in &schemes {
+            assert_eq!(s.rgb[BLACK as usize], K, "{}: black ink must be black", s.name);
+        }
+    }
+
+    #[test]
+    fn tints_use_a_column_top_and_bottom() {
+        for t in [TINT_NORMAL, TINT_HOVER, TINT_SELECT] {
+            assert_eq!(t.half as usize, t.full as usize + COLS);
+            assert_eq!(shade_of(t.full), t.half);
+        }
+        assert_eq!(shade_of(BODY), BODY_SH);
+        assert_eq!(shade_of(BG), BG);
+        assert_eq!(shade_of(DIM), DIM);
+    }
+
+    #[test]
+    fn list_parsing() {
+        assert_eq!(parse_list("a\n# c\n\n b # t\n../x\nA\n"), ["a", "b"]);
+    }
+}
