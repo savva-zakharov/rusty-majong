@@ -138,6 +138,62 @@ fn layout_buttons() -> Vec<Button> {
     out
 }
 
+/// A pop-up dialog: a title, some text lines, and a row of clickable buttons.
+struct Dialog {
+    title: &'static str,
+    lines: Vec<String>,
+    buttons: Vec<(&'static str, Action)>,
+}
+
+const DIALOG_W: i32 = 252;
+/// Gap between dialog buttons, in pixels.
+const DIALOG_BUTTON_GAP: i32 = 18;
+
+impl Dialog {
+    /// The dialog box: x, y, w, h. Rows: title, lines, a blank, the buttons.
+    fn rect(&self) -> (i32, i32, i32, i32) {
+        let h = 22 + (self.lines.len() as i32 + 2) * 10 + 8;
+        ((W - DIALOG_W) / 2, (BOARD_TOP + BOARD_BOT) / 2 - h / 2, DIALOG_W, h)
+    }
+
+    fn button_row_y(&self) -> i32 {
+        self.rect().1 + 22 + (self.lines.len() as i32 + 1) * 10
+    }
+
+    /// The buttons centred on their row, each with a padded hit area.
+    fn layout_buttons(&self) -> Vec<Button> {
+        let widths: Vec<i32> = self.buttons.iter().map(|(l, _)| Fb::text_w(l) - 1).collect();
+        let total = widths.iter().sum::<i32>() + DIALOG_BUTTON_GAP * (widths.len() as i32 - 1).max(0);
+        let y = self.button_row_y();
+        let mut x = W / 2 - total / 2;
+        let mut out = vec![];
+        for (k, &(label, action)) in self.buttons.iter().enumerate() {
+            out.push(Button { label, action, text_x: x, hit: (x - 5, y - 4, widths[k] + 10, 15) });
+            x += widths[k] + DIALOG_BUTTON_GAP;
+        }
+        out
+    }
+}
+
+/// Draw one button label at (x, y): plain, hovered (highlight box) or pressed
+/// (inverse video). `normal` is the label colour when not hovered.
+fn draw_button(fb: &mut Fb, label: &str, x: i32, y: i32, normal: u8, hover: bool, pressed: bool) {
+    let w = Fb::text_w(label) - 1;
+    if pressed {
+        fb.rect(x - 2, y - 2, w + 4, 11, AMBER);
+        fb.text_keys_br(x, y, label, BG, BG, BG);
+    } else if hover {
+        fb.rect(x - 2, y - 2, w + 4, 11, DKGREEN);
+        fb.text_keys_br(x, y, label, GREEN, AMBER, GREEN);
+    } else {
+        fb.text_keys(x, y, label, normal, AMBER);
+    }
+}
+
+fn in_rect(mx: i32, my: i32, (x, y, w, h): (i32, i32, i32, i32)) -> bool {
+    mx >= x && mx < x + w && my >= y && my < y + h
+}
+
 #[derive(PartialEq, Clone, Copy)]
 enum State {
     Playing,
@@ -189,6 +245,7 @@ pub struct Game {
     bar: Vec<Button>,
     bar_hover: Option<usize>,
     bar_flash: Option<(usize, f32)>,
+    dialog_hover: Option<usize>,
     tile_sets: Vec<String>,
     tile_set: usize,
     scheme: usize,
@@ -236,6 +293,7 @@ impl Game {
             bar: layout_buttons(),
             bar_hover: None,
             bar_flash: None,
+            dialog_hover: None,
             tile_sets,
             tile_set,
             scheme: scheme % SCHEMES.len(),
@@ -491,6 +549,23 @@ impl Game {
             }
         }
 
+        // Pop-up dialog: its buttons run their actions; clicks elsewhere in the
+        // box are swallowed so they don't reach the tiles underneath.
+        self.dialog_hover = None;
+        if let Some(d) = self.dialog() {
+            if in_rect(mx, my, d.rect()) {
+                self.hover = None;
+                let buttons = d.layout_buttons();
+                self.dialog_hover = buttons.iter().position(|b| in_rect(mx, my, b.hit));
+                if is_mouse_button_pressed(MouseButton::Left) {
+                    return match self.dialog_hover {
+                        Some(k) => self.run(buttons[k].action),
+                        None => true,
+                    };
+                }
+            }
+        }
+
         // Bottom bar: hover highlight, and clicks/taps run the button's action.
         self.bar_hover = self.bar.iter().position(|b| {
             let (x, y, w, h) = b.hit;
@@ -516,6 +591,29 @@ impl Game {
             self.selected = None;
         }
         true
+    }
+
+    /// The pop-up for the current state, if any.
+    fn dialog(&self) -> Option<Dialog> {
+        match self.state {
+            State::Won => {
+                let mut buttons = vec![("[N] NEW BOARD", Action::New)];
+                if !cfg!(target_arch = "wasm32") {
+                    buttons.push(("[ESC] QUIT", Action::Quit));
+                }
+                Some(Dialog {
+                    title: "** ALL TILES CLEARED **",
+                    lines: vec![format!("TIME {}", fmt_time(self.elapsed))],
+                    buttons,
+                })
+            }
+            State::Stuck => Some(Dialog {
+                title: "-- NO MOVES LEFT --",
+                lines: vec!["THE BOARD IS LOCKED.".into()],
+                buttons: vec![("[S]HUFFLE", Action::Shuffle), ("[U]NDO", Action::Undo), ("[N]EW", Action::New)],
+            }),
+            State::Playing => None,
+        }
     }
 
     /// Perform an action from a hotkey or a bar button. Returns false to quit.
@@ -758,17 +856,8 @@ impl Game {
 
         self.render_hud(fb);
 
-        match self.state {
-            State::Won => {
-                let t = format!("TIME {}", fmt_time(self.elapsed));
-                dialog(fb, "** ALL TILES CLEARED **", &[&t, "", "[N] NEW BOARD   [ESC] QUIT"]);
-            }
-            State::Stuck => dialog(
-                fb,
-                "-- NO MOVES LEFT --",
-                &["THE BOARD IS LOCKED.", "", "[S]HUFFLE  [U]NDO  [N]EW"],
-            ),
-            State::Playing => {}
+        if let Some(d) = self.dialog() {
+            draw_dialog(fb, &d, self.dialog_hover);
         }
     }
 
@@ -801,18 +890,8 @@ impl Game {
 
         dashed(fb, RULE_Y);
         for (k, b) in self.bar.iter().enumerate() {
-            let w = Fb::text_w(b.label) - 1;
-            let flash = self.bar_flash.map_or(false, |(f, _)| f == k);
-            if flash {
-                // Pressed: inverse video in the highlight colour.
-                fb.rect(b.text_x - 2, KEYS_Y - 2, w + 4, 11, AMBER);
-                fb.text_keys_br(b.text_x, KEYS_Y, b.label, BG, BG, BG);
-            } else if self.bar_hover == Some(k) {
-                fb.rect(b.text_x - 2, KEYS_Y - 2, w + 4, 11, DKGREEN);
-                fb.text_keys_br(b.text_x, KEYS_Y, b.label, GREEN, AMBER, GREEN);
-            } else {
-                fb.text_keys(b.text_x, KEYS_Y, b.label, DKGREEN, AMBER);
-            }
+            let pressed = self.bar_flash.map_or(false, |(f, _)| f == k);
+            draw_button(fb, b.label, b.text_x, KEYS_Y, DKGREEN, self.bar_hover == Some(k), pressed);
         }
     }
 }
@@ -844,18 +923,19 @@ fn dashed(fb: &mut Fb, y: i32) {
     }
 }
 
-fn dialog(fb: &mut Fb, title: &str, lines: &[&str]) {
-    let w = 252;
-    let h = 22 + lines.len() as i32 * 10 + 8;
-    let x = (W - w) / 2;
-    let y = (BOARD_TOP + BOARD_BOT) / 2 - h / 2;
+fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
+    let (x, y, w, h) = d.rect();
     fb.rect(x + 6, y + 4, w, h, DKGREEN); // drop shadow
     fb.rect(x, y, w, h, BG);
     fb.outline(x, y, w, h, GREEN);
     fb.outline(x + 2, y + 2, w - 4, h - 4, GREEN);
-    fb.text_center(W / 2, y + 8, title, AMBER, AMBER);
-    for (k, l) in lines.iter().enumerate() {
+    fb.text_center(W / 2, y + 8, d.title, AMBER, AMBER);
+    for (k, l) in d.lines.iter().enumerate() {
         fb.text_center(W / 2, y + 22 + k as i32 * 10, l, GREEN, AMBER);
+    }
+    let row_y = d.button_row_y();
+    for (k, b) in d.layout_buttons().iter().enumerate() {
+        draw_button(fb, b.label, b.text_x, row_y, GREEN, hover == Some(k), false);
     }
 }
 
@@ -898,6 +978,27 @@ fn draw_tile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dialog_buttons_fit_inside_the_box_without_overlapping() {
+        let mut g = Game::new(0, Assets::builtin(), vec!["DEFAULT".into()], 0, 0);
+        for state in [State::Won, State::Stuck] {
+            g.state = state;
+            let d = g.dialog().expect("dialog");
+            let (x, y, w, h) = d.rect();
+            let bs = d.layout_buttons();
+            assert_eq!(bs.len(), d.buttons.len());
+            for b in &bs {
+                let (bx, by, bw, bh) = b.hit;
+                assert!(bx >= x && by >= y && bx + bw <= x + w && by + bh <= y + h, "{} sticks out", b.label);
+            }
+            for pair in bs.windows(2) {
+                assert!(pair[0].hit.0 + pair[0].hit.2 <= pair[1].hit.0, "{} overlaps {}", pair[0].label, pair[1].label);
+            }
+        }
+        g.state = State::Playing;
+        assert!(g.dialog().is_none());
+    }
 
     #[test]
     fn enter_sound_waits_for_the_match_message() {

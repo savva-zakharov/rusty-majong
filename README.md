@@ -82,6 +82,10 @@ reachable on a phone or tablet without a keyboard. Each button's hit area is the
 the bar and reaches halfway to its neighbours, to make it easy to tap. The web version leaves out
 `QUIT`.
 
+The pop-ups work the same way: `[N] NEW BOARD` when you clear the board, and `[S]HUFFLE`,
+`[U]NDO` and `[N]EW` when no moves are left. Click or tap a button to use it. Clicks elsewhere
+inside a pop-up are ignored, so they can't hit the tiles underneath.
+
 ## Custom tile art
 
 Each tile is drawn from two PNGs in `assets/`: the tile body, and the picture drawn on top of it.
