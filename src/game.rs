@@ -74,6 +74,64 @@ fn chars_shown(msg: &str, steps: f32) -> usize {
     }
     msg.chars().count()
 }
+/// Which typing sound the characters `from..to` of `text` call for: a space
+/// sound for a space, a click for every CLICK_EVERY-th letter, at most one
+/// (a space wins). `letters` counts the letters typed so far.
+fn typing_sound(text: &str, from: usize, to: usize, letters: &mut usize) -> Option<TypeSound> {
+    let (mut space, mut click) = (false, false);
+    for ch in text.chars().skip(from).take(to.saturating_sub(from)) {
+        if ch.is_whitespace() {
+            space = true;
+        } else {
+            click |= *letters % CLICK_EVERY == 0;
+            *letters += 1;
+        }
+    }
+    if space {
+        Some(TypeSound::Space)
+    } else if click {
+        Some(TypeSound::Click)
+    } else {
+        None
+    }
+}
+
+#[derive(PartialEq, Debug)]
+enum TypeSound {
+    Click,
+    Space,
+}
+
+/// A line typed out one character at a time (the command line, the layout name
+/// in the new-board dialog).
+#[derive(Default)]
+struct Typer {
+    /// Time since the text started typing.
+    t: f32,
+    /// Characters placed (and sounded) so far.
+    typed: usize,
+    /// Letters (non-spaces) placed so far, for CLICK_EVERY.
+    letters: usize,
+}
+
+impl Typer {
+    fn restart(&mut self) {
+        *self = Typer::default();
+    }
+
+    /// Advance by `dt`; returns the sound for the characters placed this step.
+    fn step(&mut self, text: &str, dt: f32) -> Option<TypeSound> {
+        self.t += dt;
+        let shown = chars_shown(text, self.t * TYPE_CPS);
+        if shown <= self.typed {
+            return None;
+        }
+        let sound = typing_sound(text, self.typed, shown, &mut self.letters);
+        self.typed = shown;
+        sound
+    }
+}
+
 const BOARD_BOT: i32 = H - 28;
 const PROMPT_Y: i32 = H - 25;
 const RULE_Y: i32 = H - 15;
@@ -166,6 +224,8 @@ struct Dialog {
     /// Layout picker (index of the layout shown): a `< NAME >` row and a
     /// miniature of the layout, between the text lines and the buttons.
     picker: Option<usize>,
+    /// Characters of the layout name typed out so far.
+    picker_shown: usize,
 }
 
 const DIALOG_W: i32 = 252;
@@ -298,6 +358,8 @@ pub struct Game {
     dialog_hover: Option<usize>,
     /// New-board dialog open, showing this layout.
     picker: Option<usize>,
+    /// Types out the layout name in the new-board dialog.
+    picker_typer: Typer,
     tile_sets: Vec<String>,
     tile_set: usize,
     /// Colour schemes loaded from assets/palettes/ (at least one).
@@ -354,6 +416,7 @@ impl Game {
             bar_flash: None,
             dialog_hover: None,
             picker: None,
+            picker_typer: Typer::default(),
             tile_sets,
             tile_set,
             scheme: scheme % schemes.len(),
@@ -445,8 +508,15 @@ impl Game {
     pub fn open_picker(&mut self) {
         if self.picker.is_none() {
             self.picker = Some(self.layout);
+            self.picker_typer.restart();
             self.say("NEW BOARD? PICK A LAYOUT WITH < >, THEN [Y]ES OR [N]O.");
         }
+    }
+
+    /// Show the new-board dialog's layout name fully typed (screenshots).
+    pub fn finish_picker_typing(&mut self) {
+        self.picker_typer.t = 99.0;
+        self.picker_typer.typed = usize::MAX / 2;
     }
 
     fn new_game(&mut self) {
@@ -565,20 +635,16 @@ impl Game {
         if shown <= self.typed {
             return;
         }
-        let (mut space, mut click) = (false, false);
-        for ch in self.msg.chars().skip(self.typed).take(shown - self.typed) {
-            if ch.is_whitespace() {
-                space = true;
-            } else {
-                click |= self.letters_typed % CLICK_EVERY == 0;
-                self.letters_typed += 1;
-            }
-        }
+        let sound = typing_sound(&self.msg, self.typed, shown, &mut self.letters_typed);
         self.typed = shown;
-        if space {
-            self.play(&self.sounds.spaces);
-        } else if click {
-            self.play(&self.sounds.clicks);
+        self.play_typing(sound);
+    }
+
+    fn play_typing(&self, sound: Option<TypeSound>) {
+        match sound {
+            Some(TypeSound::Space) => self.play(&self.sounds.spaces),
+            Some(TypeSound::Click) => self.play(&self.sounds.clicks),
+            None => {}
         }
     }
 
@@ -634,6 +700,10 @@ impl Game {
     pub fn update(&mut self, dt: f32, mouse: (f32, f32)) -> bool {
         self.t += dt;
         self.step_messages(dt);
+        if let Some(idx) = self.picker {
+            let sound = self.picker_typer.step(board::LAYOUTS[idx].name, dt);
+            self.play_typing(sound);
+        }
         if self.state == State::Playing {
             self.elapsed += dt;
         }
@@ -747,6 +817,7 @@ impl Game {
                 lines: vec![],
                 buttons: vec![("[Y]ES", Action::NewYes), ("[N]O", Action::NewNo)],
                 picker: Some(idx),
+                picker_shown: self.picker_typer.typed,
             });
         }
         match self.state {
@@ -760,6 +831,7 @@ impl Game {
                     lines: vec![format!("TIME {}", fmt_time(self.elapsed))],
                     buttons,
                     picker: None,
+                    picker_shown: 0,
                 })
             }
             State::Stuck => Some(Dialog {
@@ -767,6 +839,7 @@ impl Game {
                 lines: vec!["THE BOARD IS LOCKED.".into()],
                 buttons: vec![("[S]HUFFLE", Action::Shuffle), ("[U]NDO", Action::Undo), ("[N]EW", Action::New)],
                 picker: None,
+                picker_shown: 0,
             }),
             State::Playing => None,
         }
@@ -793,6 +866,7 @@ impl Game {
                 if let Some(idx) = self.picker {
                     let n = board::LAYOUTS.len();
                     self.picker = Some(if action == Action::LayoutNext { (idx + 1) % n } else { (idx + n - 1) % n });
+                    self.picker_typer.restart();
                 }
             }
             Action::Tiles => self.asset_request = Some((self.tile_set + 1) % self.tile_sets.len().max(1)),
@@ -1111,7 +1185,13 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
     }
     if let Some(idx) = d.picker {
         let py = d.picker_y();
-        fb.text_center(W / 2, py, board::LAYOUTS[idx].name, AMBER, AMBER);
+        let name = board::LAYOUTS[idx].name;
+        let nx = W / 2 - (Fb::text_w(name) - 1) / 2;
+        let typed: String = name.chars().take(d.picker_shown).collect();
+        let end = fb.text(nx, py, &typed, AMBER);
+        if d.picker_shown < name.chars().count() {
+            fb.text(end, py, "█", AMBER);
+        }
         let count = format!("{}/{}", idx + 1, board::LAYOUTS.len());
         fb.text(x + w - 8 - Fb::text_w(&count) + 1, y + 8, &count, DKGREEN);
         draw_layout_preview(fb, idx, W / 2, py + 14 + PREVIEW_H / 2);
@@ -1347,6 +1427,33 @@ mod tests {
             }
         }
         assert!(y >= BOARD_TOP && y + h <= BOARD_BOT, "dialog taller than the board area");
+    }
+
+    #[test]
+    fn layout_name_types_out_and_restarts_on_change() {
+        let mut g = test_game();
+        g.run(Action::New);
+        let name = board::LAYOUTS[0].name;
+        assert_eq!(g.dialog().unwrap().picker_shown, 0);
+        let mut sounds = 0;
+        for _ in 0..120 {
+            g.step_messages(DT); // keep the command line moving too
+            if g.picker_typer.step(name, DT).is_some() {
+                sounds += 1;
+            }
+        }
+        assert_eq!(g.dialog().unwrap().picker_shown, name.chars().count());
+        assert!(sounds > 0, "typing the name made no sound");
+        g.run(Action::LayoutNext);
+        assert_eq!(g.dialog().unwrap().picker_shown, 0, "a new layout name types from the start");
+    }
+
+    #[test]
+    fn typing_sound_clicks_every_other_letter_and_spaces_win() {
+        let mut letters = 0;
+        assert_eq!(typing_sound("AB", 0, 1, &mut letters), Some(TypeSound::Click));
+        assert_eq!(typing_sound("AB", 1, 2, &mut letters), None);
+        assert_eq!(typing_sound("A B", 0, 3, &mut letters), Some(TypeSound::Space));
     }
 
     #[test]

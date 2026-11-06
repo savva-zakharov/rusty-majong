@@ -95,6 +95,7 @@ async fn main() {
     // `--new-dialog` opens the new-board dialog (for screenshots).
     if args.iter().any(|a| a == "--new-dialog") {
         game.open_picker();
+        game.finish_picker_typing();
     }
     let mut fb = fb::Fb::new(W, H);
     let mut image = Image::gen_image_color(W as u16, H as u16, BLACK);

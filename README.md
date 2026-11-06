@@ -84,7 +84,8 @@ the bar and reaches halfway to its neighbours, to make it easy to tap. The web v
 
 `[N]EW` asks first. The **NEW BOARD?** dialog shows the layout's name, with `<` and `>` either
 side to step through the layouts, and a small top-down map of it: one block per tile, coloured by
-height, with higher layers brighter (dark green, then green, amber, ivory and red). `[Y]ES` deals
+height, with higher layers brighter (dark green, then green, amber, ivory and red). The name types out like the command line, with the same
+click and space sounds, each time the dialog opens or the layout changes. `[Y]ES` deals
 a new board on that layout; `[N]O` closes the dialog and keeps the current board. On a keyboard,
 `←` / `→` (or `A` / `D`) change the layout, `Y`, `Enter` or `Space` confirm, and `N`, `Esc` or
 `Backspace` cancel. While it's open, the board behind it ignores clicks.
@@ -159,7 +160,8 @@ the line never falls far behind. An exact repeat of the last message is skipped.
 
 ## Sounds
 
-The command line makes typing sounds as it types out a message:
+The command line makes typing sounds as it types out a message (so does the layout name in the
+new-board dialog):
 
 - **Spaces** play one of `assets/sounds/space1.wav` to `space3.wav`, picked at random.
 - **Letters** play one of `click1.wav` to `click6.wav`, but only every second letter, so it isn't
