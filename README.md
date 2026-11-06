@@ -58,6 +58,12 @@ with `cargo run --release -- --layout castle`:
 | Pyramid | Four layers, each offset half a tile on the one below. Few moves are open at the start. |
 | Castle | Four corner towers, walls, a central keep with a spire, and two gates. |
 
+Each new board is dealt with a short animation: the tiles appear one at a time, left to right
+and top to bottom, finishing each layer before starting the one above. Their symbols stay hidden
+until every tile is down, then all appear together. The board takes no clicks or hints during the
+deal, and the clock starts when it ends. The speed (`DEAL_TPS`, tiles per second) and the pause
+before the symbols appear (`DEAL_REVEAL_DELAY`) are at the top of `src/game.rs`.
+
 Every layout is tested: 144 tiles, no overlaps, no floating tiles, and deals that can always be
 solved.
 
@@ -273,5 +279,5 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
 - Every board is dealt by playing the game backwards, so it can always be solved (see
   `board::deal`).
 
-Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim] [--new-dialog]` renders one frame to a PNG
-and exits. `--sound-check` prints how many typing sounds were found and exits.
+Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim] [--new-dialog] [--deal-at SECONDS]` renders one frame to a PNG
+and exits; it shows the dealt board unless `--deal-at` freezes the deal animation that far in. `--sound-check` prints how many typing sounds were found and exits.

@@ -86,6 +86,11 @@ async fn main() {
         let root = root.clone();
         macroquad::experimental::coroutines::start_coroutine(async move { load_type_sounds(&root).await })
     });
+    if shot.is_some() {
+        // Screenshots show the dealt board, or the deal frozen at `--deal-at SECONDS`.
+        let at = arg("--deal-at").and_then(|t| t.parse::<f32>().ok());
+        game.set_deal_time(at.unwrap_or(99.0));
+    }
     if demo || demo_end {
         game.demo_setup(if demo_end { 72 } else { 9 });
     }

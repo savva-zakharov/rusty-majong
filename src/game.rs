@@ -34,6 +34,10 @@ const ENTER_DELAY: f32 = 0.15;
 const MSG_GAP: f32 = 0.0;
 /// Most messages that can wait in the queue; beyond that the oldest waiting one is dropped.
 const MSG_QUEUE_MAX: usize = 4;
+/// Deal animation: tiles placed per second (144 tiles take about 1.5 s).
+const DEAL_TPS: f32 = 96.0;
+/// Pause after the last tile lands before the symbols are shown, in seconds.
+const DEAL_REVEAL_DELAY: f32 = 0.2;
 
 /// A command-line message waiting its turn.
 struct Msg {
@@ -384,6 +388,11 @@ pub struct Game {
     /// Typing sounds; empty = silent.
     sounds: TypeSounds,
     origin: (i32, i32),
+    /// Order tiles appear in when a board is dealt: rank of each tile, going
+    /// left to right, top to bottom, one layer at a time from the bottom up.
+    deal_rank: Vec<usize>,
+    /// Time since the current board was dealt (drives the deal animation).
+    deal_t: f32,
     state: State,
     moves: usize,
 }
@@ -433,6 +442,8 @@ impl Game {
             queue: VecDeque::new(),
             sounds: TypeSounds::default(),
             origin: (0, 0),
+            deal_rank: vec![],
+            deal_t: 0.0,
             state: State::Playing,
             moves: 0,
         };
@@ -479,6 +490,12 @@ impl Game {
         // Painter's order: lower layers first, then far (right/top) to near (left/bottom).
         order.sort_by_key(|&i| (pos[i].z, pos[i].gy - pos[i].gx, pos[i].gy));
         self.order = order;
+        let mut deal: Vec<usize> = (0..pos.len()).collect();
+        deal.sort_by_key(|&i| (pos[i].z, pos[i].gy, pos[i].gx));
+        self.deal_rank = vec![0; pos.len()];
+        for (rank, &i) in deal.iter().enumerate() {
+            self.deal_rank[i] = rank;
+        }
 
         let (mut minx, mut maxx, mut miny, mut maxy) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
         for p in &pos {
@@ -513,6 +530,21 @@ impl Game {
         }
     }
 
+    /// How many tiles the deal animation has placed so far.
+    fn dealt_count(&self) -> usize {
+        (self.deal_t * DEAL_TPS) as usize
+    }
+
+    /// True while tiles are still appearing or their symbols are still hidden.
+    fn dealing(&self) -> bool {
+        self.deal_t < self.pos.len() as f32 / DEAL_TPS + DEAL_REVEAL_DELAY
+    }
+
+    /// Jump the deal animation to `t` seconds in (screenshots); a large `t` skips it.
+    pub fn set_deal_time(&mut self, t: f32) {
+        self.deal_t = t;
+    }
+
     /// Show the new-board dialog's layout name fully typed (screenshots).
     pub fn finish_picker_typing(&mut self) {
         self.picker_typer.t = 99.0;
@@ -538,6 +570,7 @@ impl Game {
         self.ghosts.clear();
         self.particles.clear();
         self.elapsed = 0.0;
+        self.deal_t = 0.0;
         self.state = State::Playing;
         self.refresh_moves();
         let s = format!("{} DEALT. {}", board::LAYOUTS[self.layout].name, self.assets.status);
@@ -704,8 +737,10 @@ impl Game {
             let sound = self.picker_typer.step(board::LAYOUTS[idx].name, dt);
             self.play_typing(sound);
         }
-        if self.state == State::Playing {
-            self.elapsed += dt;
+        let was_dealing = self.dealing();
+        self.deal_t += dt;
+        if self.state == State::Playing && !was_dealing {
+            self.elapsed += dt; // the clock starts once the board is dealt
         }
         self.hint_t -= dt;
         if self.hint_t <= 0.0 {
@@ -796,8 +831,9 @@ impl Game {
             }
         }
 
-        if self.picker.is_some() {
-            self.hover = None; // the board is behind the new-board dialog
+        if self.picker.is_some() || self.dealing() {
+            // The board is behind the new-board dialog, or still being dealt.
+            self.hover = None;
             return true;
         }
         if is_mouse_button_pressed(MouseButton::Left) && self.state != State::Won {
@@ -955,7 +991,7 @@ impl Game {
     }
 
     fn show_hint(&mut self) {
-        if self.state != State::Playing {
+        if self.state != State::Playing || self.dealing() {
             return;
         }
         let moves = self.find_moves();
@@ -1066,8 +1102,9 @@ impl Game {
         }
 
         let blink = ((self.t * 5.0) as i32) % 2 == 0;
+        let (dealt, dealing) = (self.dealt_count(), self.dealing());
         for &i in &self.order {
-            if !self.alive[i] {
+            if !self.alive[i] || self.deal_rank[i] >= dealt {
                 continue;
             }
             let (sx, sy) = self.screen_pos(i);
@@ -1079,14 +1116,16 @@ impl Game {
             // Raised tiles cast a dithered shadow up-right onto the layer below.
             if self.pos[i].z > 0 {
                 let nb = &self.nb[i];
-                if !nb.right.iter().any(|&j| self.alive[j]) {
+                let shown = |j: usize| self.alive[j] && self.deal_rank[j] < dealt;
+                if !nb.right.iter().any(|&j| shown(j)) {
                     fb.shade(sx + FW + 1, sy - 2, 3, FH);
                 }
-                if !nb.up.iter().any(|&j| self.alive[j]) {
+                if !nb.up.iter().any(|&j| shown(j)) {
                     fb.shade(sx + 1, sy - 2, FW, 2);
                 }
             }
-            draw_tile(fb, &self.assets, sx, sy, self.faces[i], sel, self.dim && !free, hover, hinted, bad);
+            let face = (!dealing).then_some(self.faces[i]); // symbols hidden while dealing
+            draw_tile(fb, &self.assets, sx, sy, face, sel, self.dim && !free, hover, hinted, bad);
         }
 
         for g in &self.ghosts {
@@ -1258,7 +1297,7 @@ fn draw_tile(
     assets: &Assets,
     x: i32,
     y: i32,
-    face: Face,
+    face: Option<Face>,
     sel: bool,
     dim: bool,
     hover: bool,
@@ -1278,7 +1317,9 @@ fn draw_tile(
     };
     let (tx, ty) = (x - FACE_OX, y - FACE_OY);
     fb.blit_tinted(tx, ty, &assets.tile, tint);
-    fb.blit(x, y, assets.face(face));
+    if let Some(face) = face {
+        fb.blit(x, y, assets.face(face));
+    }
     if dim {
         // Dissolve the whole tile silhouette (sides included), not just the face.
         fb.dither_mask(tx, ty, &assets.tile, BG);
@@ -1454,6 +1495,30 @@ mod tests {
         assert_eq!(typing_sound("AB", 0, 1, &mut letters), Some(TypeSound::Click));
         assert_eq!(typing_sound("AB", 1, 2, &mut letters), None);
         assert_eq!(typing_sound("A B", 0, 3, &mut letters), Some(TypeSound::Space));
+    }
+
+    #[test]
+    fn deal_places_tiles_row_by_row_then_layer_by_layer() {
+        let mut g = test_game();
+        assert!(g.dealing());
+        // Rank order: by layer, then row (gy), then column (gx).
+        let mut by_rank: Vec<usize> = (0..g.pos.len()).collect();
+        by_rank.sort_by_key(|&i| g.deal_rank[i]);
+        for w in by_rank.windows(2) {
+            let (a, b) = (g.pos[w[0]], g.pos[w[1]]);
+            assert!((a.z, a.gy, a.gx) < (b.z, b.gy, b.gx));
+        }
+        // Clicks and hints wait for the deal; then the clock starts.
+        g.show_hint();
+        assert!(g.hint.is_none());
+        g.set_deal_time(99.0);
+        assert!(!g.dealing());
+        assert_eq!(g.dealt_count() >= g.pos.len(), true);
+        g.show_hint();
+        assert!(g.hint.is_some());
+        // A new board deals again from the start.
+        g.new_game();
+        assert!(g.dealing() && g.dealt_count() == 0);
     }
 
     #[test]
