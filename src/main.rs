@@ -72,6 +72,16 @@ async fn main() {
     let assets = sprites::Assets::load_set(&root, &sets[set]).await;
     let names = sets.iter().map(|s| s.name.clone()).collect();
     let mut game = game::Game::new(layout, assets, names, set, scheme);
+    if args.iter().any(|a| a == "--sound-check") {
+        println!("loaded {} typing sounds", load_clicks(&root).await.len());
+        return;
+    }
+    // Load the typing sounds in the background so the board appears at once
+    // (decoding them can take seconds in a browser); typing is silent until then.
+    let mut click_loader = shot.is_none().then(|| {
+        let root = root.clone();
+        macroquad::experimental::coroutines::start_coroutine(async move { load_clicks(&root).await })
+    });
     if demo || demo_end {
         game.demo_setup(if demo_end { 72 } else { 9 });
     }
@@ -84,6 +94,11 @@ async fn main() {
     tex.set_filter(FilterMode::Nearest);
 
     loop {
+        if click_loader.as_ref().is_some_and(|c| c.is_done()) {
+            if let Some(clicks) = click_loader.take().and_then(|c| c.retrieve()) {
+                game.set_clicks(clicks);
+            }
+        }
         let dt = get_frame_time().min(0.05);
         // Fill the window: largest scale that fits, fractional when needed (whole
         // multiples only would leave big borders on phones and odd window sizes).
@@ -131,6 +146,25 @@ async fn main() {
         }
         next_frame().await
     }
+}
+
+/// Load the typing clicks `assets/sounds/click1.wav` .. `click6.wav`.
+/// Each name is also tried capitalised (`Click1.wav`), since web servers are
+/// case-sensitive. Missing or unreadable files are skipped.
+async fn load_clicks(root: &str) -> Vec<macroquad::audio::Sound> {
+    let mut clicks = vec![];
+    for n in 1..=6 {
+        for name in [format!("click{n}.wav"), format!("Click{n}.wav")] {
+            if let Ok(s) = macroquad::audio::load_sound(&format!("{root}/sounds/{name}")).await {
+                clicks.push(s);
+                break;
+            }
+        }
+    }
+    if clicks.is_empty() {
+        eprintln!("rusty-majong: no typing sounds found in {root}/sounds/");
+    }
+    clicks
 }
 
 fn save_shot(fb: &fb::Fb, pal: &[palette::Rgb; palette::SLOTS], path: &str, k: i32) {

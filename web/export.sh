@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the web version and copy the game into another site's folder, e.g.
 #   bash web/export.sh ../pano-gallery/mahjong
-# Copies gl.js, rusty-majong.wasm and assets/ (the game PNGs and sets.txt).
+# Copies gl.js, audio.js, rusty-majong.wasm and assets/ (PNGs, sets.txt, sounds).
 # The destination's index.html is left alone: the host site owns its page.
 # If the destination has no index.html yet, web/index.html is copied as a start.
 set -euo pipefail
@@ -13,7 +13,7 @@ bash web/build.sh
 
 mkdir -p "$dest"
 rm -rf "$dest/assets"
-cp dist/gl.js dist/rusty-majong.wasm "$dest/"
+cp dist/gl.js dist/audio.js dist/rusty-majong.wasm "$dest/"
 cp -r dist/assets "$dest/assets"
 if [ ! -f "$dest/index.html" ]; then
     cp dist/index.html "$dest/index.html"

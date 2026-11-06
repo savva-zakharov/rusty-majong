@@ -6,6 +6,7 @@ use crate::board::{self, Nb, Pos};
 use crate::fb::Fb;
 use crate::palette::*;
 use macroquad::input::{is_key_pressed, is_mouse_button_pressed, KeyCode, MouseButton};
+use macroquad::audio::{play_sound, PlaySoundParams, Sound};
 use macroquad::rand::gen_range;
 
 pub const W: i32 = 560;
@@ -17,6 +18,10 @@ const DEPTH: i32 = 4; // tile thickness in 2:1 iso steps
 const LX: i32 = 2 * DEPTH; // layer offset = one tile thickness
 const LY: i32 = DEPTH;
 const BOARD_TOP: i32 = 16;
+/// Typewriter speed of the command line, in characters per second.
+const TYPE_CPS: f32 = 70.0;
+/// Volume of the per-letter typing clicks.
+const CLICK_VOLUME: f32 = 0.5;
 const BOARD_BOT: i32 = H - 28;
 const PROMPT_Y: i32 = H - 25;
 const RULE_Y: i32 = H - 15;
@@ -152,6 +157,10 @@ pub struct Game {
     t: f32,
     msg: String,
     msg_t: f32,
+    /// How many characters of `msg` have been typed out (and clicked) so far.
+    typed: usize,
+    /// Typing click sounds; one is picked at random per letter. Empty = silent.
+    clicks: Vec<Sound>,
     origin: (i32, i32),
     state: State,
     moves: usize,
@@ -189,6 +198,8 @@ impl Game {
             t: 0.0,
             msg: String::new(),
             msg_t: 0.0,
+            typed: 0,
+            clicks: vec![],
             origin: (0, 0),
             state: State::Playing,
             moves: 0,
@@ -278,6 +289,31 @@ impl Game {
     fn say(&mut self, s: &str) {
         self.msg = s.to_string();
         self.msg_t = 0.0;
+        self.typed = 0;
+    }
+
+    pub fn set_clicks(&mut self, clicks: Vec<Sound>) {
+        self.clicks = clicks;
+    }
+
+    /// Characters of the current message revealed by the typewriter so far.
+    fn shown_chars(&self) -> usize {
+        ((self.msg_t * TYPE_CPS) as usize).min(self.msg.chars().count())
+    }
+
+    /// Click once for the letters the typewriter placed since last frame.
+    /// At most one click per frame, and none for spaces.
+    fn type_clicks(&mut self) {
+        let shown = self.shown_chars();
+        if shown <= self.typed {
+            return;
+        }
+        let placed_letter = self.msg.chars().skip(self.typed).take(shown - self.typed).any(|c| !c.is_whitespace());
+        self.typed = shown;
+        if placed_letter && !self.clicks.is_empty() {
+            let k = gen_range(0, self.clicks.len() as u32) as usize;
+            play_sound(&self.clicks[k], PlaySoundParams { looped: false, volume: CLICK_VOLUME });
+        }
     }
 
     fn free(&self, i: usize) -> bool {
@@ -332,6 +368,7 @@ impl Game {
     pub fn update(&mut self, dt: f32, mouse: (f32, f32)) -> bool {
         self.t += dt;
         self.msg_t += dt;
+        self.type_clicks();
         if self.state == State::Playing {
             self.elapsed += dt;
         }
@@ -685,7 +722,7 @@ impl Game {
         dashed(fb, 13);
 
         // Prompt line with typewriter reveal and blinking block cursor.
-        let shown = ((self.msg_t * 70.0) as usize).min(self.msg.chars().count());
+        let shown = self.shown_chars();
         let line: String = self.msg.chars().take(shown).collect();
         let x = fb.text(4, PROMPT_Y, ">", AMBER);
         let x = fb.text_keys(x + 6, PROMPT_Y, &line, GREEN, AMBER);

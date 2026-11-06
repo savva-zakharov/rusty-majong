@@ -138,6 +138,19 @@ placeholders (existing files are kept unless you add `--force`):
 cargo run -- --export-assets assets
 ```
 
+## Sounds
+
+Each letter the command line types out plays a click, picked at random from
+`assets/sounds/click1.wav` to `click6.wav`. Each name is also tried capitalised (`Click1.wav`),
+because web servers are case-sensitive. Spaces are silent, and there's at most one click per
+frame, so fast typing doesn't stack up overlapping sounds. The volume (`CLICK_VOLUME`) and the
+typing speed (`TYPE_CPS`, in letters per second) are at the top of `src/game.rs`.
+
+The sounds load in the background, so the board appears at once and typing is silent for the
+moment they take to arrive. Browsers only allow sound after the first tap, click or key press on
+the page. The web build loads quad-snd's `audio.js` (copied into `web/`) for sound. Any file
+that's missing is skipped, and with none at all the game is simply silent.
+
 ## Tile sets
 
 `T` cycles through tile sets. The list is:
@@ -199,4 +212,4 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
   `board::deal`).
 
 Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim]` renders one frame to a PNG
-and exits.
+and exits. `--sound-check` prints how many typing sounds were found and exits.
