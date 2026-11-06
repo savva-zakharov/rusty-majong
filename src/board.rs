@@ -24,7 +24,7 @@ pub struct Layout {
     pub build: fn() -> Vec<Pos>,
 }
 
-/// All layouts, 144 tiles each. `L` cycles through them in-game.
+/// All layouts, 144 tiles each. The new-board dialog picks between them.
 pub const LAYOUTS: &[Layout] = &[
     Layout { name: "TURTLE", build: turtle },
     Layout { name: "ZIGGURAT", build: ziggurat },
