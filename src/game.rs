@@ -33,6 +33,16 @@ const CLICK_VOLUME: f32 = 0.5;
 pub struct TypeSounds {
     pub clicks: Vec<Sound>,
     pub spaces: Vec<Sound>,
+    /// Played when a pair is matched and removed.
+    pub enters: Vec<Sound>,
+}
+
+/// Play one sound from `pool` at random (nothing if the pool is empty).
+fn play_random(pool: &[Sound]) {
+    if !pool.is_empty() {
+        let k = gen_range(0, pool.len() as u32) as usize;
+        play_sound(&pool[k], PlaySoundParams { looped: false, volume: CLICK_VOLUME });
+    }
 }
 
 /// How many characters of `msg` the typewriter has placed after `steps` typing
@@ -351,10 +361,10 @@ impl Game {
             }
         }
         self.typed = shown;
-        let pool = if space { &self.sounds.spaces } else if click { &self.sounds.clicks } else { return };
-        if !pool.is_empty() {
-            let k = gen_range(0, pool.len() as u32) as usize;
-            play_sound(&pool[k], PlaySoundParams { looped: false, volume: CLICK_VOLUME });
+        if space {
+            play_random(&self.sounds.spaces);
+        } else if click {
+            play_random(&self.sounds.clicks);
         }
     }
 
@@ -542,6 +552,7 @@ impl Game {
         self.history.push(Undo::Pair(a, b));
         self.selected = None;
         self.hint = None;
+        play_random(&self.sounds.enters);
         for i in [a, b] {
             let (sx, sy) = self.screen_pos(i);
             self.ghosts.push(Ghost { x: sx, y: sy, t: 0.0 });

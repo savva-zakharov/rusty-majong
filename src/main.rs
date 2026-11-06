@@ -74,7 +74,7 @@ async fn main() {
     let mut game = game::Game::new(layout, assets, names, set, scheme);
     if args.iter().any(|a| a == "--sound-check") {
         let s = load_type_sounds(&root).await;
-        println!("loaded {} click and {} space sounds", s.clicks.len(), s.spaces.len());
+        println!("loaded {} click, {} space and {} enter sounds", s.clicks.len(), s.spaces.len(), s.enters.len());
         return;
     }
     // Load the typing sounds in the background so the board appears at once
@@ -149,16 +149,18 @@ async fn main() {
     }
 }
 
-/// Load the typing sounds: `assets/sounds/click1.wav` .. `click6.wav` and
-/// `space1.wav` .. `space3.wav`. Each name is also tried capitalised
+/// Load the sounds: `assets/sounds/click1.wav` .. `click6.wav`,
+/// `space1.wav` .. `space3.wav` and `enter1.wav` .. `enter3.wav` (played on a
+/// successful match). Each name is also tried capitalised
 /// (`Click1.wav`), since web servers are case-sensitive. Missing files are skipped.
 async fn load_type_sounds(root: &str) -> game::TypeSounds {
     let sounds = game::TypeSounds {
         clicks: load_numbered(root, "click", 6).await,
         spaces: load_numbered(root, "space", 3).await,
+        enters: load_numbered(root, "enter", 3).await,
     };
-    if sounds.clicks.is_empty() && sounds.spaces.is_empty() {
-        eprintln!("rusty-majong: no typing sounds found in {root}/sounds/");
+    if sounds.clicks.is_empty() && sounds.spaces.is_empty() && sounds.enters.is_empty() {
+        eprintln!("rusty-majong: no sounds found in {root}/sounds/");
     }
     sounds
 }
