@@ -1121,22 +1121,44 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
     }
 }
 
+/// Grid extent of a layout: (min gx, max gx, min gy, max gy), tiles being 2x2.
+fn grid_bounds(pos: &[Pos]) -> (i32, i32, i32, i32) {
+    let (mut minx, mut maxx, mut miny, mut maxy) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for p in pos {
+        minx = minx.min(p.gx);
+        maxx = maxx.max(p.gx + 2);
+        miny = miny.min(p.gy);
+        maxy = maxy.max(p.gy + 2);
+    }
+    (minx, maxx, miny, maxy)
+}
+
+/// Pixels per half-tile in layout previews: the largest at which every layout
+/// fits the preview area (tiles a little taller than wide).
+fn preview_unit() -> i32 {
+    let spans: Vec<(i32, i32)> = board::LAYOUTS
+        .iter()
+        .map(|l| {
+            let (x0, x1, y0, y1) = grid_bounds(&(l.build)());
+            (x1 - x0, y1 - y0)
+        })
+        .collect();
+    (2..=6)
+        .rev()
+        .find(|&u| spans.iter().all(|&(w, h)| w * u <= PREVIEW_W && h * (u + u / 3) <= PREVIEW_H))
+        .unwrap_or(2)
+}
+
 /// A small abstract map of a layout, centred on (cx, cy), seen straight from
 /// above: one block per tile, coloured by height (higher layers brighter and
 /// drawn on top), each with a background-coloured rim so tile edges read.
 fn draw_layout_preview(fb: &mut Fb, idx: usize, cx: i32, cy: i32) {
     const LAYER_INK: [u8; 5] = [DKGREEN, GREEN, AMBER, IVORY, RED];
     let pos = (board::LAYOUTS[idx].build)();
-    let (mut minx, mut maxx, mut miny, mut maxy) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
-    for p in &pos {
-        minx = minx.min(p.gx);
-        maxx = maxx.max(p.gx + 2);
-        miny = miny.min(p.gy);
-        maxy = maxy.max(p.gy + 2);
-    }
-    // Pixels per half-tile, as large as fits; tiles are a little taller than wide.
-    let fit = |ux: i32| (maxx - minx) * ux <= PREVIEW_W && (maxy - miny) * (ux + ux / 3) <= PREVIEW_H;
-    let ux = (2..=6).rev().find(|&u| fit(u)).unwrap_or(2);
+    let (minx, maxx, miny, maxy) = grid_bounds(&pos);
+    // One scale for every layout (the largest that fits them all), so tiles
+    // and layouts keep their relative sizes when stepping through them.
+    let ux = preview_unit();
     let uy = ux + ux / 3;
     let (ox, oy) = (cx - (maxx - minx) * ux / 2, cy - (maxy - miny) * uy / 2);
     let mut order: Vec<usize> = (0..pos.len()).collect();
