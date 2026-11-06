@@ -111,7 +111,7 @@ game colours the tile by multiplying it with a tint for each state:
 
 | State | White becomes | Grey becomes | Black becomes |
 | --- | --- | --- | --- |
-| Normal | green | dark green | the tile body colour |
+| Normal | tile colour (palette column 7) | tile colour dark | the tile body colour |
 | Hover (free tile) | amber | dark amber | the tile body colour |
 | Selected | red | dark red | the tile body colour |
 
@@ -211,13 +211,13 @@ and the bottom row their darkened versions:
 | Column | Top row (bright) | Bottom row (dark) |
 | --- | --- | --- |
 | 0 | light: built-in faces, light text | light shade |
-| 1 | primary: text, normal tiles | primary dark: grey parts of tiles, dashed rules |
+| 1 | primary: text | primary dark: dashed rules |
 | 2 | red: selection, errors, ink | red dark |
 | 3 | highlight: hover, hints, prompt | highlight dark |
 | 4 | blue: ink | blue dark |
 | 5 | tile body (the black parts of `tile.png`) | tile body in shadow |
-| 6 | background | background lattice dots |
-| 7 | black ink | spare |
+| 6 | background, also black ink in face art | background lattice dots |
+| 7 | tile colour: white parts of `tile.png` | tile colour dark: grey parts of `tile.png` |
 
 The screen only ever uses these 16 colours. Switching palettes recolours everything at once: the
 HUD, the tiles, the built-in art and your PNGs. Shadows from raised tiles darken a pixel by moving
@@ -240,7 +240,10 @@ Pressing `R` reloads the palettes too, so you can see your edits right away.
 
 Some things to keep in mind:
 
-- Keep column 7's top pixel black: it's the black ink in face art, such as the bird's eye.
+- Black in face art, such as the bird's eye, is drawn in the background colour (column 6), so it
+  always matches the table.
+- The tile colour (column 7) is separate from the primary text colour (column 1), so tiles and
+  text can be different colours.
 - A palette that's missing or not exactly 8 × 2 is skipped, with a message in the terminal. If
   none load, the game uses a built-in copy of PHOSPHOR.
 - PHOSPHOR's colours are also built into the game, because `faces.png` is matched against them.

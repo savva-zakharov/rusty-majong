@@ -7,18 +7,21 @@
 //! | col | top row (bright)              | bottom row (dark)                   |
 //! |-----|-------------------------------|-------------------------------------|
 //! | 0   | light: built-in faces, text   | light shade                         |
-//! | 1   | primary: text, normal tiles   | primary dark: grey tile parts       |
+//! | 1   | primary: text, highlights     | primary dark: dashed rules          |
 //! | 2   | red: selection, errors, ink   | red dark                            |
 //! | 3   | highlight: hover, prompt      | highlight dark                      |
 //! | 4   | blue: ink                     | blue dark                           |
 //! | 5   | tile body (black tile tone)   | tile body in shadow                 |
 //! | 6   | background                    | background lattice dots             |
-//! | 7   | black ink                     | spare                               |
+//! | 7   | tile: white parts of tile.png | tile dark: grey parts of tile.png   |
+//!
+//! Black ink in face art (e.g. the bird's eye) uses the background colour
+//! (column 6, top), so it always matches the table the tiles sit on.
 //!
 //! Switching palettes swaps every colour at once: all art is stored as slots.
 //! Tile sprites are three-level (white / grey / black): white pixels take a
-//! tint's top-row colour, grey pixels the colour under it, black pixels the
-//! tile body. Cast shadows move a pixel from the top row to the bottom row.
+//! tint's top-row colour (column 7 normally, highlight on hover, red when
+//! selected), grey pixels the colour under it, black pixels the tile body. Cast shadows move a pixel from the top row to the bottom row.
 
 pub const IVORY: u8 = 0;
 pub const GREEN: u8 = 1;
@@ -27,7 +30,7 @@ pub const AMBER: u8 = 3;
 pub const BLUE: u8 = 4;
 pub const BODY: u8 = 5;
 pub const BG: u8 = 6;
-pub const BLACK: u8 = 7;
+pub const TILE: u8 = 7;
 pub const IVORY_SH: u8 = 8;
 pub const DKGREEN: u8 = 9;
 pub const DKRED: u8 = 10;
@@ -36,9 +39,11 @@ pub const DKBLUE: u8 = 12;
 #[allow(dead_code)] // reached via shade_of(BODY)
 pub const BODY_SH: u8 = 13;
 pub const DIM: u8 = 14;
-#[allow(dead_code)]
-pub const SPARE: u8 = 15;
+pub const TILE_SH: u8 = 15;
+/// Black ink in face art: drawn in the background colour.
+pub const BLACK: u8 = BG;
 
+/// Palette slots: the 16 pixels of the palette PNG (8 columns x 2 rows).
 pub const SLOTS: usize = 16;
 /// Width of a palette PNG; its height is 2.
 pub const COLS: usize = 8;
@@ -57,8 +62,8 @@ pub fn shade_of(c: u8) -> u8 {
     }
 }
 
-/// Slots that face art (faces.png) can use. Background, lattice, tile body and
-/// spare are scheme roles, not art colours.
+/// Slots that face art (faces.png) can use. BLACK is the background slot, used
+/// as ink; lattice, tile body and tile colour are scheme roles, not art colours.
 pub const INK: [u8; 11] = [IVORY, GREEN, RED, AMBER, BLUE, BLACK, IVORY_SH, DKGREEN, DKRED, DKAMBER, DKBLUE];
 
 /// Software multiply of a colour by a grey level (0..=255).
@@ -95,7 +100,7 @@ pub const PALETTE: [Rgb; SLOTS] = [
     P_BLUE,
     K, // tile body
     K, // background
-    K, // black ink
+    P_PRIMARY, // tile
     [0xBF, 0xAA, 0x80],
     mul(P_PRIMARY, GREY),
     mul(P_RED, GREY),
@@ -103,7 +108,7 @@ pub const PALETTE: [Rgb; SLOTS] = [
     mul(P_BLUE, GREY),
     K, // tile body in shadow
     [0x10, 0x2C, 0x1C],
-    K,
+    mul(P_PRIMARY, GREY), // tile dark
 ];
 
 pub fn builtin() -> Scheme {
@@ -181,7 +186,7 @@ pub struct Tint {
     pub half: u8,
 }
 
-pub const TINT_NORMAL: Tint = Tint { full: GREEN, half: DKGREEN };
+pub const TINT_NORMAL: Tint = Tint { full: TILE, half: TILE_SH };
 pub const TINT_HOVER: Tint = Tint { full: AMBER, half: DKAMBER };
 pub const TINT_SELECT: Tint = Tint { full: RED, half: DKRED };
 
@@ -205,9 +210,7 @@ mod tests {
         let schemes = shipped();
         assert!(schemes.len() >= 2);
         assert_eq!(schemes[0], builtin(), "phosphor.png must equal the built-in PALETTE");
-        for s in &schemes {
-            assert_eq!(s.rgb[BLACK as usize], K, "{}: black ink must be black", s.name);
-        }
+        assert_eq!(BLACK, BG, "black ink is drawn in the background colour");
     }
 
     #[test]

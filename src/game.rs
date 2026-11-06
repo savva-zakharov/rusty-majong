@@ -27,11 +27,11 @@ const AFTER_SPACE_STEPS: f32 = 2.0;
 /// Only every Nth letter of a message clicks (spaces always make their sound).
 const CLICK_EVERY: usize = 2;
 /// Volume of the typing sounds.
-const CLICK_VOLUME: f32 = 0.5;
+const CLICK_VOLUME: f32 = 0.3;
 /// Beat after a match message finishes typing before its enter sound plays, in seconds.
 const ENTER_DELAY: f32 = 0.15;
 /// Pause after a message has finished typing before the next queued one starts, in seconds.
-const MSG_GAP: f32 = 1.0;
+const MSG_GAP: f32 = 0.0;
 /// Most messages that can wait in the queue; beyond that the oldest waiting one is dropped.
 const MSG_QUEUE_MAX: usize = 4;
 
@@ -1088,20 +1088,25 @@ mod tests {
             }
         }
         assert_eq!(g.msg, "FIRST MESSAGE");
-        // It types out completely, then the line waits MSG_GAP before SECOND starts.
-        let mut finished_at = None;
-        let mut t = 0.0;
-        while g.msg == "FIRST MESSAGE" {
+        let first = g.msg.clone();
+        let len = first.chars().count();
+        // When the typewriter's own timeline has FIRST fully typed (works for any
+        // MSG_GAP, including 0, where SECOND starts in the same frame).
+        let mut typed_out = 0.0;
+        while chars_shown(&first, typed_out * TYPE_CPS) < len {
+            typed_out += DT;
+        }
+        // Step until SECOND takes the line; FIRST's msg_t then is when it switched.
+        let mut switched_at = 0.0;
+        while g.msg == first {
+            switched_at = g.msg_t + DT;
             g.step_messages(DT);
-            t += DT;
-            if finished_at.is_none() && g.msg_finished() {
-                finished_at = Some(t);
-            }
-            assert!(t < 10.0, "SECOND never started");
+            assert!(switched_at < 10.0, "SECOND never started");
         }
         assert_eq!(g.msg, "SECOND");
-        let gap = t - finished_at.expect("FIRST finished typing");
-        assert!(gap >= MSG_GAP - DT && gap <= MSG_GAP + 2.0 * DT, "gap was {gap}s");
+        assert_eq!(chars_shown(&first, switched_at * TYPE_CPS), len, "SECOND started before FIRST was typed out");
+        let gap = switched_at - typed_out;
+        assert!(gap >= MSG_GAP - 2.0 * DT && gap <= MSG_GAP + 2.0 * DT, "gap was {gap}s, MSG_GAP is {MSG_GAP}s");
     }
 
     #[test]
