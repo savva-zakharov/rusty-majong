@@ -95,6 +95,7 @@ enum Action {
     Dim,
     Reload,
     Crt,
+    Mute,
     Quit,
 }
 
@@ -112,6 +113,7 @@ fn buttons() -> Vec<(&'static str, Action)> {
         ("[F] DIM", Action::Dim),
         ("[R]ELOAD", Action::Reload),
         ("[C]RT", Action::Crt),
+        ("[M]UTE", Action::Mute),
     ];
     if !cfg!(target_arch = "wasm32") {
         b.push(("[ESC] QUIT", Action::Quit));
@@ -250,6 +252,8 @@ pub struct Game {
     ghosts: Vec<Ghost>,
     particles: Vec<Particle>,
     pub crt: bool,
+    /// All sounds off (typing and match).
+    pub muted: bool,
     assets: Assets,
     /// Set by `T` (next set) / `R` (reload): the tile set index the main loop
     /// should load asynchronously and hand back through `set_assets`.
@@ -306,6 +310,7 @@ impl Game {
             ghosts: vec![],
             particles: vec![],
             crt: true,
+            muted: false,
             assets,
             asset_request: None,
             bar: layout_buttons(),
@@ -455,6 +460,13 @@ impl Game {
         self.msg_done_t = 0.0;
     }
 
+    /// Play a random sound from `pool`, unless sound is muted.
+    fn play(&self, pool: &[Sound]) {
+        if !self.muted {
+            play_random(pool);
+        }
+    }
+
     fn msg_finished(&self) -> bool {
         self.typed >= self.msg.chars().count()
     }
@@ -470,7 +482,7 @@ impl Game {
         }
         self.msg_done_t += dt;
         if self.msg_enter && self.msg_done_t >= ENTER_DELAY {
-            play_random(&self.sounds.enters);
+            self.play(&self.sounds.enters);
             self.msg_enter = false;
         }
         if self.msg_done_t >= MSG_GAP {
@@ -519,9 +531,9 @@ impl Game {
         }
         self.typed = shown;
         if space {
-            play_random(&self.sounds.spaces);
+            self.play(&self.sounds.spaces);
         } else if click {
-            play_random(&self.sounds.clicks);
+            self.play(&self.sounds.clicks);
         }
     }
 
@@ -603,7 +615,7 @@ impl Game {
         let (mx, my) = (mouse.0.floor() as i32, mouse.1.floor() as i32);
         self.hover = self.pick(mx, my);
 
-        let keys: [(&[KeyCode], Action); 11] = [
+        let keys: [(&[KeyCode], Action); 12] = [
             (&[KeyCode::H], Action::Hint),
             (&[KeyCode::U, KeyCode::Z, KeyCode::Backspace], Action::Undo),
             (&[KeyCode::S], Action::Shuffle),
@@ -614,6 +626,7 @@ impl Game {
             (&[KeyCode::F], Action::Dim),
             (&[KeyCode::R], Action::Reload),
             (&[KeyCode::C], Action::Crt),
+            (&[KeyCode::M], Action::Mute),
             (&[KeyCode::Escape], Action::Quit),
         ];
         for (codes, action) in keys {
@@ -711,6 +724,10 @@ impl Game {
             Action::Crt => {
                 self.crt = !self.crt;
                 self.say(if self.crt { "CRT SCANLINES ON." } else { "CRT SCANLINES OFF." });
+            }
+            Action::Mute => {
+                self.muted = !self.muted;
+                self.say(if self.muted { "SOUND OFF." } else { "SOUND ON." });
             }
             Action::Quit => return cfg!(target_arch = "wasm32"), // no-op in the browser
         }
@@ -963,7 +980,9 @@ impl Game {
         dashed(fb, RULE_Y);
         for (k, b) in self.bar.iter().enumerate() {
             let pressed = self.bar_flash.map_or(false, |(f, _)| f == k);
-            draw_button(fb, b.label, b.text_x, KEYS_Y, DKGREEN, self.bar_hover == Some(k), pressed);
+            // MUTE shows in red while sound is off.
+            let normal = if b.action == Action::Mute && self.muted { RED } else { DKGREEN };
+            draw_button(fb, b.label, b.text_x, KEYS_Y, normal, self.bar_hover == Some(k), pressed);
         }
     }
 }

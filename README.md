@@ -73,6 +73,7 @@ solved.
 | `F` | dither-dim blocked tiles |
 | `R` | reload the current tile set's art and the list of sets |
 | `C` | toggle CRT scanlines |
+| `M` | mute / unmute all sounds (the `[M]UTE` button turns red while muted) |
 | `Esc` | quit (desktop only) |
 | right click | deselect |
 
