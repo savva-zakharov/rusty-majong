@@ -60,7 +60,7 @@ git push origin v0.4
 | --- | --- |
 | `rusty-majong-<tag>-windows-x64.zip` | `rusty-majong.exe`, `assets/` and this README |
 | `rusty-majong-<tag>-linux-x64.tar.gz` | the `rusty-majong` binary, `assets/` and this README (built on Ubuntu 22.04) |
-| `rusty-majong-<tag>-android.apk` | the game for Android phones and tablets (32- and 64-bit ARM), in landscape |
+| `rusty-majong-<tag>-android.apk` | the game for Android 5 and later (ARM phones and tablets, x86_64 Chromebooks and emulators), in landscape |
 
 Some things to know:
 
@@ -69,9 +69,18 @@ Some things to know:
   workflow"); a hand-started run makes the files as downloads on the run, without a release.
 - The `.psd` files are left out of the packages.
 - The Linux binary needs ALSA, X11 and OpenGL, which desktop distributions have already.
-- The Android build uses macroquad's `notfl3/cargo-apk` Docker image and `cargo quad-apk`. Its
-  settings (app name, package name, orientation) are under `[package.metadata.android]` in
-  `Cargo.toml`. Android asks you to allow installing it from an unknown source.
+- The Android build uses macroquad's packager, `cargo quad-apk`, built from source at a pinned
+  commit (`QUAD_APK_REV` in the workflow), with the runner's Android SDK and NDK. Its settings
+  (app name, package name, SDK versions, orientation) are under `[package.metadata.android]` in
+  `Cargo.toml`. The app id is `io.github.savvazakharov.rusty_majong`. The package name must end in
+  `rusty-majong`, the binary's name, or the app can't find its native library and closes on
+  launch. Android asks you to allow installing it from an unknown source.
+- Before the APK goes into a release, it's installed and launched on an Android 10 and an
+  Android 15 emulator, and must still be running 25 seconds later
+  (`.github/android-smoke-test.sh`). Each test keeps its logcat and a screenshot as downloads
+  on the run. If a test fails, the release goes out without the APK.
+- Each build's `versionCode` is the workflow run number and its `versionName` is the tag without
+  the `v`, so a new release installs over the last one.
 - The APK is signed in the workflow. Set two repository secrets so every build is signed with
   the same key and new versions install over old ones: `ANDROID_KEYSTORE` (a `.jks` keystore,
   base64-encoded) and `ANDROID_KEYSTORE_PASSWORD`. Without them, each run signs with a throwaway
