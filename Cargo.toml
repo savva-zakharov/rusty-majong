@@ -6,6 +6,20 @@ edition = "2021"
 [dependencies]
 macroquad = { version = "0.4", features = ["audio"] }
 
+# Android APK (built by `cargo quad-apk`, see .github/workflows/release.yml).
+# The APK's asset folder is `android/apk-assets/`, which the workflow fills
+# with a copy of `assets/` inside an `assets/` folder, so the game finds its
+# files at `assets/...` just as on desktop and the web.
+[package.metadata.android]
+package_name = "io.github.savvazakharov.rustymajong"
+label = "Rusty Majong"
+assets = "android/apk-assets"
+fullscreen = true
+build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]
+
+[package.metadata.android.activity_attributes]
+"android:screenOrientation" = "userLandscape"
+
 [profile.dev]
 opt-level = 1
 

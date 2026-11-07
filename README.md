@@ -43,6 +43,39 @@ yet, it copies `web/index.html` as a starting point. Run it again after changing
 art. The page must be served from an address ending in `/`, because the game loads its files by
 relative paths.
 
+## Release builds (GitHub Actions)
+
+Pushing a tag builds the game for Windows, Linux and Android and publishes the builds as a
+GitHub release named after the tag (`.github/workflows/release.yml`):
+
+```bash
+git tag v0.4
+```
+
+```bash
+git push origin v0.4
+```
+
+| File | Contents |
+| --- | --- |
+| `rusty-majong-<tag>-windows-x64.zip` | `rusty-majong.exe`, `assets/` and this README |
+| `rusty-majong-<tag>-linux-x64.tar.gz` | the `rusty-majong` binary, `assets/` and this README (built on Ubuntu 22.04) |
+| `rusty-majong-<tag>-android.apk` | the game for Android phones and tablets (32- and 64-bit ARM), in landscape |
+
+Some things to know:
+
+- Each platform is its own job, so if one fails the others still go into the release. You can see
+  each job's log in the repository's Actions tab, and also start a build there by hand ("Run
+  workflow"); a hand-started run makes the files as downloads on the run, without a release.
+- The `.psd` files are left out of the packages.
+- The Linux binary needs ALSA, X11 and OpenGL, which desktop distributions have already.
+- The Android build uses macroquad's `notfl3/cargo-apk` Docker image and `cargo quad-apk`. Its
+  settings (app name, package name, orientation) are under `[package.metadata.android]` in
+  `Cargo.toml`. The APK is signed with a debug key, so Android asks you to allow installing it
+  from an unknown source; it isn't suitable for the Play Store as it is.
+- On Android the art and sounds are packed inside the APK, so they can't be edited without
+  rebuilding.
+
 ## Playing
 
 Click two free tiles that match to remove them. A tile is free when nothing is on top of it and

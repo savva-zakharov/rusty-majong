@@ -1508,10 +1508,12 @@ impl Game {
     }
 }
 
-/// Where to load art from. On the web: `assets/` next to index.html.
+/// Where to load art from. On the web: `assets/` next to index.html; on
+/// Android: `assets/` inside the APK.
 /// On desktop: `assets/` in the working directory, else next to the executable.
 pub fn assets_dir() -> String {
-    if cfg!(target_arch = "wasm32") || std::path::Path::new("assets").is_dir() {
+    // Web: next to index.html. Android: the APK's own `assets/` folder.
+    if cfg!(target_arch = "wasm32") || cfg!(target_os = "android") || std::path::Path::new("assets").is_dir() {
         return "assets".into();
     }
     std::env::current_exe()
