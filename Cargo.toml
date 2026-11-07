@@ -11,14 +11,27 @@ macroquad = { version = "0.4", features = ["audio"] }
 # with a copy of `assets/` inside an `assets/` folder, so the game finds its
 # files at `assets/...` just as on desktop and the web.
 [package.metadata.android]
-package_name = "io.github.savvazakharov.rustymajong"
+# cargo-quad-apk loads the native library named after the last part of the
+# package name, so it must end in the binary's name (librusty-majong.so).
+# Android's app id turns the hyphen into an underscore: ...rusty_majong.
+package_name = "io.github.savvazakharov.rusty-majong"
 label = "Rusty Majong"
 assets = "android/apk-assets"
 fullscreen = true
-build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]
+# Compile and target a current Android, or new phones refuse to install it.
+android_version = 36
+target_sdk_version = 36
+min_sdk_version = 21
+# The workflow sets these from the tag and run number, so updates install.
+version_code = 1
+version_name = "0.0.0"
+# x86_64 is for emulators and Chromebooks.
+build_targets = ["armv7-linux-androideabi", "aarch64-linux-android", "x86_64-linux-android"]
 
 [package.metadata.android.activity_attributes]
 "android:screenOrientation" = "userLandscape"
+# Required for the launcher activity when targeting Android 12 (SDK 31) or later.
+"android:exported" = "true"
 
 [profile.dev]
 opt-level = 1

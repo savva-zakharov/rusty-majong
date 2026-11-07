@@ -4,8 +4,9 @@
 #   git tag v0.4
 #   git push origin v0.4
 #
-# Each build is a separate job, so one failing (say Android) doesn't stop the
-# others from being published.
+# Each build is a separate job, so one failing doesn't stop the others from
+# being published. The APK is only published once it has installed and kept
+# running on two Android emulators.
 name: release
 
 on:
@@ -18,6 +19,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # cargo-quad-apk, pinned: macroquad's Android packager, built from source.
+  QUAD_APK_REV: d411c8fe1c08339e46d7dc6b40ac04ea5e3a01b6
 
 jobs:
   windows:
@@ -64,37 +67,42 @@ jobs:
           path: rusty-majong-*-linux-x64.tar.gz
 
   android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # has the Android SDK (platform 36) and NDK 27
     steps:
       - uses: actions/checkout@v4
-      - name: Stage APK assets
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-linux-androideabi,aarch64-linux-android,x86_64-linux-android
+      - name: Cache cargo-quad-apk
+        id: quad-apk
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-quad-apk
+          key: cargo-quad-apk-${{ env.QUAD_APK_REV }}
+      - name: Install cargo-quad-apk
+        if: steps.quad-apk.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/not-fl3/cargo-quad-apk --rev "$QUAD_APK_REV" --locked
+      - name: Stage APK assets and version
         # The APK's asset root is android/apk-assets (see Cargo.toml); the game
         # reads assets/..., so the art goes in an assets/ folder inside it.
+        # versionCode must grow with every build so updates install.
         run: |
           mkdir -p android/apk-assets
           cp -r assets android/apk-assets/assets
           find android/apk-assets -name '*.psd' -delete
+          name="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version_code = .*/version_code = ${GITHUB_RUN_NUMBER}/; s/^version_name = .*/version_name = \"${name}\"/" Cargo.toml
+          grep -E '^version_(code|name)' Cargo.toml
       - name: Build APK
-        # notfl3/cargo-apk is macroquad's Android build image: Android SDK,
-        # NDK and cargo-quad-apk. Update its Rust first, in case it's older
-        # than this code needs. cargo-quad-apk reads Cargo.lock with an older
-        # Cargo that only knows lock file version 3; for crates.io-only
-        # dependencies, versions 3 and 4 are otherwise the same.
         run: |
-          sed -i 's/^version = 4$/version = 3/' Cargo.lock
-          docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk bash -c '
-            set -e
-            rustup update stable && rustup default stable
-            rustup target add armv7-linux-androideabi aarch64-linux-android
-            cargo quad-apk build --release
-          '
+          export NDK_HOME="$ANDROID_NDK_ROOT"
+          cargo quad-apk build --release --nosign
       - name: Sign APK
-        # cargo-quad-apk leaves release APKs unsigned, and Android only installs
-        # signed ones. With the ANDROID_KEYSTORE (base64 of a .jks file) and
-        # ANDROID_KEYSTORE_PASSWORD repository secrets set, every build is
-        # signed with that key, so new versions install over old ones. Without
-        # them, a throwaway key is made for this run: the APK installs, but
-        # updating from another build means uninstalling first.
+        # Android only installs signed APKs. With the ANDROID_KEYSTORE (base64
+        # of a .jks file) and ANDROID_KEYSTORE_PASSWORD repository secrets set,
+        # every build is signed with that key, so new versions install over
+        # old ones. Without them, a throwaway key is made for this run: the APK
+        # installs, but updating from another build means uninstalling first.
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
           KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -116,21 +124,86 @@ jobs:
           "$bt/apksigner" sign --ks signing.jks --ks-pass "pass:$pass" --key-pass "pass:$pass" --out "$out" aligned.apk
           "$bt/apksigner" verify --print-certs "$out"
           rm signing.jks
+          "$bt/aapt2" dump badging "$out" | grep -E "^(package|sdkVersion|targetSdkVersion|native-code|launchable-activity)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-untested
+          path: rusty-majong-*-android.apk
+
+  android-test:
+    # Install the APK on an Android 10 and an Android 15 emulator, launch it
+    # and check it is still running after a while. Logs and a screenshot are
+    # kept as downloads on the run.
+    needs: android
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-untested
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        env:
+          API: ${{ matrix.api }}
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash .github/android-smoke-test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test-api${{ matrix.api }}
+          path: |
+            logcat-*.txt
+            screen-*.png
+          if-no-files-found: ignore
+
+  android-publish:
+    # Hand the APK to the release only once both emulator tests passed.
+    needs: android-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-untested
       - uses: actions/upload-artifact@v4
         with:
           name: android
           path: rusty-majong-*-android.apk
 
   release:
-    # Publish whatever built, as long as the run wasn't cancelled.
-    needs: [windows, linux, android]
+    # Publish whatever built (and, for Android, passed its tests), as long as
+    # the run wasn't cancelled.
+    needs: [windows, linux, android-publish]
     if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
+        if: needs.windows.result == 'success'
         with:
+          name: windows
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: needs.linux.result == 'success'
+        with:
+          name: linux
+          path: dist
+      - uses: actions/download-artifact@v4
+        if: needs.android-publish.result == 'success'
+        with:
+          name: android
+          path: dist
       - run: ls -l dist
       - uses: softprops/action-gh-release@v2
         with:
