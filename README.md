@@ -181,7 +181,7 @@ Messages on the command line (the `>` prompt) wait their turn in a queue. Each o
 completely, and the next starts 1 second after it finishes, so quick clicks don't cut each other
 off. If you select two tiles quickly, the first tile's name is typed in full before the second
 starts. At most 4 messages wait in the queue; beyond that the oldest waiting one is dropped, so
-the line never falls far behind. An exact repeat of the last message is skipped. The gap
+the line never falls far behind. A repeated message types out again, so pressing the same button twice answers twice. The gap
 (`MSG_GAP`) and the queue length (`MSG_QUEUE_MAX`) are at the top of `src/game.rs`.
 
 ## Sounds

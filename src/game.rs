@@ -810,11 +810,8 @@ impl Game {
     }
 
     fn queue_msg(&mut self, s: &str, enter: bool) {
-        // Skip exact repeats of what is already on the line or last in the queue.
-        let last = self.queue.back().map_or(self.msg.as_str(), |m| m.text.as_str());
-        if last == s && !enter {
-            return;
-        }
+        // Repeats are typed again too, so pressing the same button twice
+        // answers twice.
         self.queue.push_back(Msg { text: s.to_string(), enter });
         while self.queue.len() > MSG_QUEUE_MAX {
             self.queue.pop_front(); // keep the newest; the line itself always finishes
@@ -1725,14 +1722,27 @@ mod tests {
     }
 
     #[test]
-    fn queue_is_capped_and_skips_repeats() {
+    fn queue_is_capped() {
         let mut g = test_game();
         for i in 0..10 {
             g.say(&format!("MSG {i}"));
         }
-        g.say("MSG 9");
         assert_eq!(g.queue.len(), MSG_QUEUE_MAX);
         assert_eq!(g.queue.back().map(|m| m.text.as_str()), Some("MSG 9"));
+    }
+
+    #[test]
+    fn repeated_messages_type_out_again() {
+        let mut g = test_game();
+        g.show_latest_now();
+        g.run(Action::Undo); // NOTHING TO UNDO.
+        g.show_latest_now();
+        assert_eq!(g.msg, "NOTHING TO UNDO.");
+        g.run(Action::Undo);
+        assert_eq!(g.queue.len(), 1, "the same message is queued again");
+        g.step_messages(DT);
+        assert_eq!(g.msg, "NOTHING TO UNDO.");
+        assert!(!g.msg_finished(), "and types out from the start");
     }
 
     #[test]
