@@ -161,7 +161,7 @@ async fn main() {
             WHITE,
             DrawTextureParams { dest_size: Some(vec2(W as f32 * s, H as f32 * s)), ..Default::default() },
         );
-        if game.crt && s >= 2.0 {
+        if game.scanlines() && s >= 2.0 {
             let lh = (s / 3.0).max(1.0).floor();
             // Round each line to whole pixels so fractional scales don't shimmer.
             let col = Color::new(0.0, 0.0, 0.0, 0.38);

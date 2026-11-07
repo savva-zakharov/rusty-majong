@@ -75,7 +75,6 @@ solved.
 | `N` | new board: opens the new-board dialog, where you pick the layout |
 | `T` | theme: opens the theme dialog, where you pick the tile set and colours |
 | `F` | dither-dim blocked tiles |
-| `C` | toggle CRT scanlines |
 | `M` | mute / unmute all sounds (the `[M]UTE` button turns red while muted) |
 | `Esc` | quit (desktop only) |
 | right click | deselect |
@@ -99,20 +98,23 @@ in the tile set and colours you're trying. Arrows sit round it: `<` / `>` (or th
 step through the tile sets, and `^` / `⌄` (or `↑` / `↓`) through the colour schemes. The whole
 screen switches to the colours you're trying, so you can see them on the board too. Under the
 tile, the names of the set and the colours type out, with typing sounds, whenever they change,
-with each one's place in its list on the right.
+with each one's place in its list on the right. Below them, the `[C]RT` row turns the CRT
+scanlines on or off; like the colours, the screen shows the change straight away, and it's kept
+only if you accept.
 
 | Button | Keys | What it does |
 | --- | --- | --- |
-| `[C]ANCEL` | `C`, `N`, `Esc`, `Backspace` | close the dialog and keep the tile set and colours you had |
-| `[A]CCEPT` | `A`, `Y`, `Enter`, `Space` | switch to the tile set and colours shown |
+| `[E]XIT` | `E`, `N`, `Esc`, `Backspace` | close the dialog and keep the tile set, colours and scanlines you had |
+| `[A]CCEPT` | `A`, `Y`, `Enter`, `Space` | switch to the tile set, colours and scanlines shown |
 | `[R]ELOAD` | `R` | re-read `sets.txt`, the palettes and the shown set's PNGs from disk |
+| `[C]RT` (a row under the names) | `C` | turn CRT scanlines on or off |
 
 Each tile set is loaded the first time you step to it, which shows `...` in the box for a moment
 on the web.
 
 While either dialog is open, the board ignores clicks, and the bar's game buttons (`[H]INT`,
-`[U]NDO`, `[S]HUFFLE`, `[N]EW`, `[T]HEME`, `[F] DIM`) wait until it closes. `[C]RT`, `[M]UTE`
-and `[ESC] QUIT` still work.
+`[U]NDO`, `[S]HUFFLE`, `[N]EW`, `[T]HEME`, `[F] DIM`) wait until it closes. `[M]UTE` and
+`[ESC] QUIT` still work.
 
 The other pop-ups work the same way: `[N] NEW BOARD` when you clear the board (it opens the dialog above), and `[S]HUFFLE`,
 `[U]NDO` and `[N]EW` when no moves are left. Click or tap a button to use it. Clicks elsewhere

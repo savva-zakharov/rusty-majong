@@ -170,9 +170,9 @@ enum Action {
     SetNext,
     SchemePrev,
     SchemeNext,
-    /// Theme dialog: keep the choice / go back to what it was / reload the art.
+    /// Theme dialog: keep the choice / leave without changes / reload the art.
     ThemeAccept,
-    ThemeCancel,
+    ThemeExit,
     ThemeReload,
     Dim,
     Crt,
@@ -190,7 +190,6 @@ fn buttons() -> Vec<(&'static str, Action)> {
         ("[N]EW", Action::New),
         ("[T]HEME", Action::Theme),
         ("[F] DIM", Action::Dim),
-        ("[C]RT", Action::Crt),
         ("[M]UTE", Action::Mute),
     ];
     if !cfg!(target_arch = "wasm32") {
@@ -254,12 +253,15 @@ struct ThemeView {
     scheme_name: String,
     scheme_shown: usize,
     scheme_pos: (usize, usize),
+    crt: bool,
 }
 
 /// The theme being chosen in the theme dialog.
 struct ThemeEdit {
     set: usize,
     scheme: usize,
+    /// CRT scanlines.
+    crt: bool,
     set_typer: Typer,
     scheme_typer: Typer,
 }
@@ -267,8 +269,12 @@ struct ThemeEdit {
 /// Size of the theme dialog's preview: one tile and a little table around it.
 const THEME_BOX_W: i32 = 56;
 const THEME_BOX_H: i32 = 48;
-/// Height of the theme chooser: up arrow, box, down arrow, gap, two name rows.
-const THEME_H: i32 = 10 + THEME_BOX_H + 12 + 4 + 20;
+/// Height of the theme chooser: up arrow, box, down arrow, gap, three rows
+/// (tiles, colours, CRT).
+const THEME_H: i32 = 10 + THEME_BOX_H + 12 + 4 + 30;
+/// x of the theme rows' labels and values.
+const THEME_LABEL_X: i32 = W / 2 - 60;
+const THEME_VALUE_X: i32 = W / 2 - 12;
 /// The tile shown in the theme preview (the bird: several ink colours).
 const THEME_FACE: Face = Face::Bam(1);
 
@@ -299,6 +305,11 @@ impl Dialog {
     /// Top of the theme chooser (its up arrow).
     fn theme_y(&self) -> i32 {
         self.picker_y()
+    }
+
+    /// y of the theme dialog's first name row (TILES); COLOURS and CRT follow.
+    fn theme_rows_y(&self) -> i32 {
+        self.theme_y() + 10 + THEME_BOX_H + 16
     }
 
     /// The theme preview box: x, y, w, h.
@@ -345,6 +356,9 @@ impl Dialog {
             out.push(Button { label: "⌄", action: Action::SchemeNext, text_x: W / 2 - 2, text_y: by + bh + 3, hit: (bx, by + bh, bw, 12) });
             out.push(Button { label: "<", action: Action::SetPrev, text_x: bx - 16, text_y: cy, hit: (dx + 4, by, bx - (dx + 4), bh) });
             out.push(Button { label: ">", action: Action::SetNext, text_x: bx + bw + 12, text_y: cy, hit: (bx + bw, by, dx + dw - 4 - (bx + bw), bh) });
+            // The CRT row toggles scanlines: its whole width is the button.
+            let ry = self.theme_rows_y() + 20;
+            out.push(Button { label: "[C]RT", action: Action::Crt, text_x: THEME_LABEL_X, text_y: ry, hit: (THEME_LABEL_X - 5, ry - 3, THEME_VALUE_X + 30 - (THEME_LABEL_X - 5), 12) });
         }
         out
     }
@@ -412,7 +426,8 @@ pub struct Game {
     history: Vec<Undo>,
     ghosts: Vec<Ghost>,
     particles: Vec<Particle>,
-    pub crt: bool,
+    /// CRT scanlines (see `scanlines`, which previews the theme dialog's choice).
+    crt: bool,
     /// All sounds off (typing and match).
     pub muted: bool,
     assets: Assets,
@@ -584,12 +599,18 @@ impl Game {
         &self.schemes[k].rgb
     }
 
+    /// Whether to draw CRT scanlines (the one being tried while the theme dialog is open).
+    pub fn scanlines(&self) -> bool {
+        self.theme.as_ref().map_or(self.crt, |t| t.crt)
+    }
+
     /// Open the theme dialog on the current tile set and colours.
     pub fn open_theme(&mut self) {
         if self.theme.is_none() {
             self.theme = Some(ThemeEdit {
                 set: self.tile_set,
                 scheme: self.scheme,
+                crt: self.crt,
                 set_typer: Typer::default(),
                 scheme_typer: Typer::default(),
             });
@@ -632,6 +653,7 @@ impl Game {
     fn theme_accept(&mut self) {
         let Some(t) = self.theme.take() else { return };
         self.scheme = t.scheme;
+        self.crt = t.crt;
         if let Some(k) = self.previews.iter().position(|(i, _)| *i == t.set) {
             self.assets = self.previews.swap_remove(k).1;
             self.tile_set = t.set;
@@ -640,7 +662,8 @@ impl Game {
         }
         self.previews.clear();
         let name = self.tile_sets.get(t.set).cloned().unwrap_or_default();
-        let s = format!("THEME: {} / {}.", name, self.schemes[self.scheme].name);
+        let crt = if self.crt { "CRT ON" } else { "CRT OFF" };
+        let s = format!("THEME: {} / {} / {}.", name, self.schemes[self.scheme].name, crt);
         self.say(&s);
     }
 
@@ -980,7 +1003,6 @@ impl Game {
                 (&[KeyCode::Y, KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space], Action::NewYes),
                 (&[KeyCode::N, KeyCode::Escape, KeyCode::Backspace], Action::NewNo),
                 (&[KeyCode::M], Action::Mute),
-                (&[KeyCode::C], Action::Crt),
             ]
         } else if self.theme.is_some() {
             // The theme dialog takes the keyboard while it is open.
@@ -990,8 +1012,9 @@ impl Game {
                 (&[KeyCode::Up], Action::SchemePrev),
                 (&[KeyCode::Down], Action::SchemeNext),
                 (&[KeyCode::A, KeyCode::Y, KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space], Action::ThemeAccept),
-                (&[KeyCode::C, KeyCode::N, KeyCode::Escape, KeyCode::Backspace], Action::ThemeCancel),
+                (&[KeyCode::E, KeyCode::N, KeyCode::Escape, KeyCode::Backspace], Action::ThemeExit),
                 (&[KeyCode::R], Action::ThemeReload),
+                (&[KeyCode::C], Action::Crt),
                 (&[KeyCode::M], Action::Mute),
             ]
         } else {
@@ -1002,7 +1025,6 @@ impl Game {
                 (&[KeyCode::N], Action::New),
                 (&[KeyCode::T], Action::Theme),
                 (&[KeyCode::F], Action::Dim),
-                (&[KeyCode::C], Action::Crt),
                 (&[KeyCode::M], Action::Mute),
                 (&[KeyCode::Escape], Action::Quit),
             ]
@@ -1078,7 +1100,7 @@ impl Game {
             return Some(Dialog {
                 title: "-- THEME --",
                 lines: vec![],
-                buttons: vec![("[C]ANCEL", Action::ThemeCancel), ("[A]CCEPT", Action::ThemeAccept), ("[R]ELOAD", Action::ThemeReload)],
+                buttons: vec![("[E]XIT", Action::ThemeExit), ("[A]CCEPT", Action::ThemeAccept), ("[R]ELOAD", Action::ThemeReload)],
                 picker: None,
                 picker_shown: 0,
                 theme: Some(ThemeView {
@@ -1088,6 +1110,7 @@ impl Game {
                     scheme_name: self.schemes[t.scheme].name.clone(),
                     scheme_shown: t.scheme_typer.typed,
                     scheme_pos: (t.scheme + 1, self.schemes.len()),
+                    crt: t.crt,
                 }),
             });
         }
@@ -1125,8 +1148,8 @@ impl Game {
     }
 
     fn run(&mut self, action: Action) -> bool {
-        // While a dialog is open, the bar's game actions wait (sound, scanlines
-        // and quit still work).
+        // While a dialog is open, the bar's game actions wait (sound and quit
+        // still work).
         let game_action = matches!(action, Action::Hint | Action::Undo | Action::Shuffle | Action::New | Action::Theme | Action::Dim);
         if self.modal() && game_action {
             return true;
@@ -1159,7 +1182,7 @@ impl Game {
             Action::SchemePrev => self.theme_step_scheme(-1),
             Action::SchemeNext => self.theme_step_scheme(1),
             Action::ThemeAccept => self.theme_accept(),
-            Action::ThemeCancel => {
+            Action::ThemeExit => {
                 if self.theme.take().is_some() {
                     self.previews.clear();
                     self.say("THEME UNCHANGED.");
@@ -1177,8 +1200,11 @@ impl Game {
                 self.say(if self.dim { "BLOCKED TILES DIMMED." } else { "BLOCKED TILES SHOWN NORMALLY." });
             }
             Action::Crt => {
-                self.crt = !self.crt;
-                self.say(if self.crt { "CRT SCANLINES ON." } else { "CRT SCANLINES OFF." });
+                if let Some(t) = &mut self.theme {
+                    t.crt = !t.crt; // previewed now, kept on accept
+                } else {
+                    self.crt = !self.crt;
+                }
             }
             Action::Mute => {
                 self.muted = !self.muted;
@@ -1524,8 +1550,8 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         draw_layout_preview(fb, idx, W / 2, py + 14 + PREVIEW_H / 2);
     }
     if let Some(t) = &d.theme {
-        let ny = d.theme_y() + 10 + THEME_BOX_H + 16;
-        let (lx, nx) = (W / 2 - 60, W / 2 - 12);
+        let ny = d.theme_rows_y();
+        let (lx, nx) = (THEME_LABEL_X, THEME_VALUE_X);
         let rows = [("TILES", &t.set_name, t.set_shown, t.set_pos), ("COLOURS", &t.scheme_name, t.scheme_shown, t.scheme_pos)];
         for (k, (label, name, shown, (i, n))) in rows.into_iter().enumerate() {
             let y = ny + k as i32 * 10;
@@ -1538,9 +1564,12 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
             let count = format!("{i}/{n}");
             fb.text(x + w - 8 - Fb::text_w(&count) + 1, y, &count, DKGREEN);
         }
+        // CRT row: the [C]RT label is a button (drawn with the others); its value here.
+        fb.text(nx, ny + 20, if t.crt { "ON" } else { "OFF" }, AMBER);
     }
     for (k, b) in d.layout_buttons().iter().enumerate() {
-        draw_button(fb, b.label, b.text_x, b.text_y, GREEN, hover == Some(k), false);
+        let normal = if b.action == Action::Crt { DKGREEN } else { GREEN };
+        draw_button(fb, b.label, b.text_x, b.text_y, normal, hover == Some(k), false);
     }
 }
 
@@ -1860,9 +1889,12 @@ mod tests {
         g.run(Action::Theme);
         g.run(Action::SchemeNext);
         assert_eq!(g.palette()[0], [1, 2, 3]);
-        g.run(Action::ThemeCancel);
+        g.run(Action::Crt);
+        assert!(!g.scanlines(), "scanlines preview while trying");
+        g.run(Action::ThemeExit);
         assert!(g.theme.is_none());
         assert_eq!((g.scheme, g.palette()[0]), (0, palette::PALETTE[0]));
+        assert!(g.scanlines(), "exit keeps the scanlines as they were");
         // A set that isn't loaded yet asks the main loop for it.
         g.run(Action::Theme);
         g.run(Action::SetNext);
@@ -1874,6 +1906,11 @@ mod tests {
         g.run(Action::ThemeAccept);
         assert!(g.theme.is_none());
         assert_eq!((g.tile_set, g.scheme), (1, 1));
+        // Accept keeps a scanline change.
+        g.run(Action::Theme);
+        g.run(Action::Crt);
+        g.run(Action::ThemeAccept);
+        assert!(!g.scanlines());
         // Game actions wait while the dialog is open.
         g.run(Action::Theme);
         g.run(Action::New);
@@ -1882,7 +1919,7 @@ mod tests {
         let d = g.dialog().unwrap();
         let (x, y, w, h) = d.rect();
         let bs = d.layout_buttons();
-        assert_eq!(bs.len(), 7);
+        assert_eq!(bs.len(), 8);
         for (k, b) in bs.iter().enumerate() {
             let (bx, by, bw, bh) = b.hit;
             assert!(bx >= x && by >= y && bx + bw <= x + w && by + bh <= y + h, "{} sticks out", b.label);
