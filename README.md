@@ -174,6 +174,9 @@ new-board dialog):
   overwhelming.
 - **After a space**, the next letter takes twice as long to appear, so words come out with a
   small pause between them.
+- **Dealing** clicks as the tiles are placed, at the same interval as letters (every second
+  tile), using the same click sounds. It stays quiet while the command line or the new-board
+  dialog's layout name is typing, so the two never play over each other.
 - **A successful match** plays one of `enter1.wav` to `enter3.wav`, picked at random, once its
   MATCH message has finished typing, like pressing Enter at the end of a line.
 

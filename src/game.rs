@@ -393,6 +393,8 @@ pub struct Game {
     deal_rank: Vec<usize>,
     /// Time since the current board was dealt (drives the deal animation).
     deal_t: f32,
+    /// Tiles the deal animation has already placed (and counted for sounds).
+    deal_placed: usize,
     state: State,
     moves: usize,
 }
@@ -444,6 +446,7 @@ impl Game {
             origin: (0, 0),
             deal_rank: vec![],
             deal_t: 0.0,
+            deal_placed: 0,
             state: State::Playing,
             moves: 0,
         };
@@ -543,6 +546,33 @@ impl Game {
     /// Jump the deal animation to `t` seconds in (screenshots); a large `t` skips it.
     pub fn set_deal_time(&mut self, t: f32) {
         self.deal_t = t;
+        self.deal_placed = self.dealt_count().min(self.pos.len());
+    }
+
+    /// True while the command line or the new-board dialog's layout name is
+    /// still typing out (and so making its own typing sounds).
+    fn text_typing(&self) -> bool {
+        let picker = self
+            .picker
+            .is_some_and(|idx| self.picker_typer.typed < board::LAYOUTS[idx].name.chars().count());
+        !self.msg_finished() || picker
+    }
+
+    /// Sound the tiles the deal placed since last frame: a click for every
+    /// CLICK_EVERY-th tile, like letters, but only while no text is typing.
+    /// Returns whether a click is due (tests).
+    fn deal_clicks(&mut self) -> bool {
+        let now = self.dealt_count().min(self.pos.len());
+        let mut click = false;
+        for k in self.deal_placed..now {
+            click |= k % CLICK_EVERY == 0;
+        }
+        self.deal_placed = now;
+        let due = click && !self.text_typing();
+        if due {
+            self.play(&self.sounds.clicks);
+        }
+        due
     }
 
     /// Show the new-board dialog's layout name fully typed (screenshots).
@@ -571,6 +601,7 @@ impl Game {
         self.particles.clear();
         self.elapsed = 0.0;
         self.deal_t = 0.0;
+        self.deal_placed = 0;
         self.state = State::Playing;
         self.refresh_moves();
         let s = format!("{} DEALT. {}", board::LAYOUTS[self.layout].name, self.assets.status);
@@ -739,6 +770,7 @@ impl Game {
         }
         let was_dealing = self.dealing();
         self.deal_t += dt;
+        self.deal_clicks();
         if self.state == State::Playing && !was_dealing {
             self.elapsed += dt; // the clock starts once the board is dealt
         }
@@ -1519,6 +1551,31 @@ mod tests {
         // A new board deals again from the start.
         g.new_game();
         assert!(g.dealing() && g.dealt_count() == 0);
+    }
+
+    #[test]
+    fn deal_clicks_only_while_no_text_is_typing() {
+        let mut g = test_game();
+        // The DEALT message is typing: the deal stays quiet.
+        g.step_messages(DT);
+        assert!(g.text_typing());
+        g.deal_t = 2.0 / DEAL_TPS;
+        assert!(!g.deal_clicks());
+        // Once the line is fully typed, every CLICK_EVERY-th tile clicks.
+        g.show_latest_now();
+        assert!(!g.text_typing());
+        let mut clicks = 0;
+        for k in 3..=12 {
+            g.deal_t = k as f32 / DEAL_TPS + 1e-4;
+            if g.deal_clicks() {
+                clicks += 1;
+            }
+        }
+        assert_eq!(clicks, 10 / CLICK_EVERY);
+        // The layout name typing in the new-board dialog also silences it.
+        g.run(Action::New);
+        g.show_latest_now();
+        assert!(g.text_typing());
     }
 
     #[test]
