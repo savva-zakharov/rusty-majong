@@ -77,8 +77,11 @@ jobs:
       - name: Build APK
         # notfl3/cargo-apk is macroquad's Android build image: Android SDK,
         # NDK and cargo-quad-apk. Update its Rust first, in case it's older
-        # than this code needs.
+        # than this code needs. cargo-quad-apk reads Cargo.lock with an older
+        # Cargo that only knows lock file version 3; for crates.io-only
+        # dependencies, versions 3 and 4 are otherwise the same.
         run: |
+          sed -i 's/^version = 4$/version = 3/' Cargo.lock
           docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk bash -c '
             set -e
             rustup update stable && rustup default stable
