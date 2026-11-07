@@ -1486,7 +1486,7 @@ impl Game {
     fn render_hud(&self, fb: &mut Fb) {
         let x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
         let name = format!(
-            "V0.3 {} / {} / {}",
+            "V0.4 {} / {} / {}",
             board::LAYOUTS[self.layout].name,
             self.tile_set_name(),
             self.schemes[self.scheme].name

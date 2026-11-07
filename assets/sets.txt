@@ -3,3 +3,4 @@
 # from assets/ itself, then the built-in art. Press T in-game to cycle.
 wireframe
 chunky
+rounded
