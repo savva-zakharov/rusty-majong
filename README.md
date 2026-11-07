@@ -199,6 +199,8 @@ new-board dialog):
   dialog's layout name is typing, so the two never play over each other.
 - **A successful match** plays one of `enter1.wav` to `enter3.wav`, picked at random, once its
   MATCH message has finished typing, like pressing Enter at the end of a line.
+- **Letting go of a selected tile**, by clicking empty space or right-clicking, plays one of
+  `escape1.wav` to `escape3.wav`, picked at random. Nothing plays if no tile was selected.
 
 Each name is also tried capitalised (`Click1.wav`), because web servers are case-sensitive.
 There's at most one sound per frame, so fast typing doesn't stack up overlapping sounds. The

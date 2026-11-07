@@ -53,6 +53,8 @@ pub struct TypeSounds {
     pub spaces: Vec<Sound>,
     /// Played when a pair is matched and removed.
     pub enters: Vec<Sound>,
+    /// Played when a selected tile is let go by clicking empty space.
+    pub escapes: Vec<Sound>,
 }
 
 /// Play one sound from `pool` at random (nothing if the pool is empty).
@@ -1076,7 +1078,7 @@ impl Game {
             self.click(self.hover);
         }
         if is_mouse_button_pressed(MouseButton::Right) {
-            self.selected = None;
+            self.deselect();
         }
         true
     }
@@ -1212,9 +1214,19 @@ impl Game {
         true
     }
 
+    /// Let go of the selected tile (empty-space or right click), with an
+    /// escape sound if there was one. Returns whether a tile was selected.
+    fn deselect(&mut self) -> bool {
+        let had = self.selected.take().is_some();
+        if had {
+            self.play(&self.sounds.escapes);
+        }
+        had
+    }
+
     fn click(&mut self, target: Option<usize>) {
         let Some(i) = target else {
-            self.selected = None;
+            self.deselect();
             return;
         };
         if !self.free(i) {
@@ -1938,6 +1950,18 @@ mod tests {
                 assert!(bx + bw <= cx || cx + cw <= bx || by + bh <= cy || cy + ch <= by, "{} overlaps {}", b.label, c.label);
             }
         }
+    }
+
+    #[test]
+    fn clicking_empty_space_deselects() {
+        let mut g = test_game();
+        g.set_deal_time(99.0);
+        let (a, _) = g.find_moves()[0];
+        g.click(Some(a));
+        assert_eq!(g.selected, Some(a));
+        g.click(None);
+        assert_eq!(g.selected, None);
+        assert!(!g.deselect(), "nothing left to deselect: no second escape sound");
     }
 
     #[test]
