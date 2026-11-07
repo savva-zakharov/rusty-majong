@@ -60,6 +60,7 @@ impl Tone {
     }
 }
 
+#[derive(Clone)]
 pub struct ToneSprite {
     pub w: i32,
     pub h: i32,
@@ -72,6 +73,7 @@ impl ToneSprite {
     }
 }
 
+#[derive(Clone)]
 pub struct Sprite {
     pub w: i32,
     pub h: i32,
@@ -127,6 +129,7 @@ pub fn all_faces() -> Vec<Face> {
     v
 }
 
+#[derive(Clone)]
 pub struct Assets {
     pub tile: ToneSprite,
     faces: Vec<Sprite>, // indexed by row * SHEET_COLS + col

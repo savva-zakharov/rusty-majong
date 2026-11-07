@@ -26,7 +26,7 @@ on the network you're on. To serve to this machine only, use `--listen tcp://127
 `web/build.sh` puts `index.html`, `gl.js` (miniquad's loader,
 copied into `web/`), `rusty-majong.wasm` and your `assets/*.png` into `dist/`. Any static file
 server works. In the browser the art loads over HTTP from `dist/assets/`; after changing it, run
-the build again, or copy the PNGs into `dist/assets/` and press `R`. `Esc` does nothing on the
+the build again, or copy the PNGs into `dist/assets/` and use `[R]ELOAD` in the theme dialog. `Esc` does nothing on the
 web.
 
 ### Embedding in another site
@@ -73,17 +73,15 @@ solved.
 | `U` / `Z` / `Backspace` | undo (also undoes shuffles) |
 | `S` | shuffle the remaining tiles into a solvable arrangement |
 | `N` | new board: opens the new-board dialog, where you pick the layout |
-| `T` | next tile set |
-| `P` | next colour scheme (palette) |
+| `T` | theme: opens the theme dialog, where you pick the tile set and colours |
 | `F` | dither-dim blocked tiles |
-| `R` | reload the current tile set's art and the list of sets |
 | `C` | toggle CRT scanlines |
 | `M` | mute / unmute all sounds (the `[M]UTE` button turns red while muted) |
 | `Esc` | quit (desktop only) |
 | right click | deselect |
 
 Every key in the table, except the extra undo keys, is also a button on the bar at the bottom of the
-screen: `[H]INT`, `[L]AYOUT` and so on. Click or tap one to use it, which makes every option
+screen: `[H]INT`, `[T]HEME` and so on. Click or tap one to use it, which makes every option
 reachable on a phone or tablet without a keyboard. Each button's hit area is the full height of
 the bar and reaches halfway to its neighbours, to make it easy to tap. The web version leaves out
 `QUIT`.
@@ -95,6 +93,26 @@ click and space sounds, each time the dialog opens or the layout changes. `[Y]ES
 a new board on that layout; `[N]O` closes the dialog and keeps the current board. On a keyboard,
 `←` / `→` (or `A` / `D`) change the layout, `Y`, `Enter` or `Space` confirm, and `N`, `Esc` or
 `Backspace` cancel. While it's open, the board behind it ignores clicks.
+
+`[T]HEME` opens the **THEME** dialog. In the middle is one tile on a small patch of table, drawn
+in the tile set and colours you're trying. Arrows sit round it: `<` / `>` (or the `←` / `→` keys)
+step through the tile sets, and `^` / `⌄` (or `↑` / `↓`) through the colour schemes. The whole
+screen switches to the colours you're trying, so you can see them on the board too. Under the
+tile, the names of the set and the colours type out, with typing sounds, whenever they change,
+with each one's place in its list on the right.
+
+| Button | Keys | What it does |
+| --- | --- | --- |
+| `[C]ANCEL` | `C`, `N`, `Esc`, `Backspace` | close the dialog and keep the tile set and colours you had |
+| `[A]CCEPT` | `A`, `Y`, `Enter`, `Space` | switch to the tile set and colours shown |
+| `[R]ELOAD` | `R` | re-read `sets.txt`, the palettes and the shown set's PNGs from disk |
+
+Each tile set is loaded the first time you step to it, which shows `...` in the box for a moment
+on the web.
+
+While either dialog is open, the board ignores clicks, and the bar's game buttons (`[H]INT`,
+`[U]NDO`, `[S]HUFFLE`, `[N]EW`, `[T]HEME`, `[F] DIM`) wait until it closes. `[C]RT`, `[M]UTE`
+and `[ESC] QUIT` still work.
 
 The other pop-ups work the same way: `[N] NEW BOARD` when you clear the board (it opens the dialog above), and `[S]HUFFLE`,
 `[U]NDO` and `[N]EW` when no moves are left. Click or tap a button to use it. Clicks elsewhere
@@ -148,7 +166,7 @@ Other colour schemes recolour the faces automatically (see below).
 - A file that's missing or the wrong size falls back to the built-in art. The message line says
   which happened.
 
-Press `R` in the game to reload the PNGs while you edit them. To write the built-in art out as
+Use `[R]ELOAD` in the theme dialog (`T`, then `R`) to reload the PNGs while you edit them. To write the built-in art out as
 placeholders (existing files are kept unless you add `--force`):
 
 ```
@@ -199,7 +217,7 @@ that's missing is skipped, and with none at all the game is simply silent.
 
 ## Tile sets
 
-`T` cycles through tile sets. The list is:
+Pick a tile set in the theme dialog (`T`). The list is:
 
 1. **DEFAULT**: `assets/tile.png` and `assets/faces.png`.
 2. One set per line of `assets/sets.txt`, in order. Each line is a folder name under
@@ -211,7 +229,7 @@ leaves out comes from `assets/`, then from the built-in art. So a set with just 
 reuses your faces.
 
 The game uses a list file instead of scanning `assets/sets/` because a browser can't list a folder
-over HTTP. Pressing `R` re-reads `sets.txt`, so a new set shows up without restarting.
+over HTTP. `[R]ELOAD` in the theme dialog re-reads `sets.txt`, so a new set shows up without restarting.
 
 Two example sets are included. Both have only a `tile.png`:
 
@@ -222,7 +240,7 @@ Two example sets are included. Both have only a `tile.png`:
 
 ## Colour schemes
 
-`P` cycles through colour schemes (palettes). A palette is an **8 × 2 pixel PNG** in
+Pick a colour scheme (palette) in the theme dialog (`T`). A palette is an **8 × 2 pixel PNG** in
 `assets/palettes/`, so you can edit it in any paint program. The top row holds 8 bright colours
 and the bottom row their darkened versions:
 
@@ -245,7 +263,7 @@ row is the lattice, not a shade.
 `assets/palettes.txt` lists the palettes in order, one name per line (the file name without
 `.png`). The first is the default. As with tile sets, a list file is used because a browser can't
 list a folder. To add a palette, copy one of the PNGs, recolour it and add its name to the list.
-Pressing `R` reloads the palettes too, so you can see your edits right away.
+`[R]ELOAD` in the theme dialog reloads the palettes too, so you can see your edits right away.
 
 | Palette | Background | Tile body | Primary | Highlight | Selection |
 | --- | --- | --- | --- | --- | --- |
@@ -282,5 +300,5 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
 - Every board is dealt by playing the game backwards, so it can always be solved (see
   `board::deal`).
 
-Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim] [--new-dialog] [--deal-at SECONDS]` renders one frame to a PNG
+Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim] [--new-dialog | --theme-dialog] [--deal-at SECONDS]` renders one frame to a PNG
 and exits; it shows the dealt board unless `--deal-at` freezes the deal animation that far in. `--sound-check` prints how many typing sounds were found and exits.

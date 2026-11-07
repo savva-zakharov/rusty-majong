@@ -102,6 +102,11 @@ async fn main() {
         game.open_picker();
         game.finish_picker_typing();
     }
+    // `--theme-dialog` opens the theme dialog (for screenshots).
+    if args.iter().any(|a| a == "--theme-dialog") {
+        game.open_theme();
+        game.finish_theme_typing();
+    }
     let mut fb = fb::Fb::new(W, H);
     let mut image = Image::gen_image_color(W as u16, H as u16, BLACK);
     let tex = Texture2D::from_image(&image);
@@ -129,9 +134,18 @@ async fn main() {
             let sets = sprites::list_sets(&root).await;
             let idx = want.min(sets.len() - 1);
             let assets = sprites::Assets::load_set(&root, &sets[idx]).await;
-            // R also re-reads the palettes, so edited palette PNGs show up live.
-            game.set_schemes(palette::load(&root).await);
             game.set_assets(assets, idx, sets.iter().map(|s| s.name.clone()).collect());
+        }
+        if let Some((want, reload)) = game.preview_request.take() {
+            // Theme preview: load the tried tile set. Reload re-reads sets.txt
+            // and the palettes too, so edits show up without a restart.
+            let sets = sprites::list_sets(&root).await;
+            if reload {
+                game.set_schemes(palette::load(&root).await);
+            }
+            let idx = want.min(sets.len() - 1);
+            let assets = sprites::Assets::load_set(&root, &sets[idx]).await;
+            game.set_preview(idx, assets, sets.iter().map(|s| s.name.clone()).collect(), reload);
         }
         game.render(&mut fb);
         fb.write_rgba(&mut image.bytes, game.palette());

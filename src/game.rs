@@ -123,6 +123,11 @@ impl Typer {
         *self = Typer::default();
     }
 
+    /// Whether all of `text` has been typed out.
+    fn done(&self, text: &str) -> bool {
+        self.typed >= text.chars().count()
+    }
+
     /// Advance by `dt`; returns the sound for the characters placed this step.
     fn step(&mut self, text: &str, dt: f32) -> Option<TypeSound> {
         self.t += dt;
@@ -158,10 +163,18 @@ enum Action {
     /// New-board dialog: previous / next layout.
     LayoutPrev,
     LayoutNext,
-    Tiles,
-    Palette,
+    /// Open the theme dialog (tile set and colour scheme).
+    Theme,
+    /// Theme dialog: previous / next tile set, previous / next colour scheme.
+    SetPrev,
+    SetNext,
+    SchemePrev,
+    SchemeNext,
+    /// Theme dialog: keep the choice / go back to what it was / reload the art.
+    ThemeAccept,
+    ThemeCancel,
+    ThemeReload,
     Dim,
-    Reload,
     Crt,
     Mute,
     Quit,
@@ -175,10 +188,8 @@ fn buttons() -> Vec<(&'static str, Action)> {
         ("[U]NDO", Action::Undo),
         ("[S]HUFFLE", Action::Shuffle),
         ("[N]EW", Action::New),
-        ("[T]ILES", Action::Tiles),
-        ("[P]ALETTE", Action::Palette),
+        ("[T]HEME", Action::Theme),
         ("[F] DIM", Action::Dim),
-        ("[R]ELOAD", Action::Reload),
         ("[C]RT", Action::Crt),
         ("[M]UTE", Action::Mute),
     ];
@@ -230,7 +241,36 @@ struct Dialog {
     picker: Option<usize>,
     /// Characters of the layout name typed out so far.
     picker_shown: usize,
+    /// Theme chooser: a tile preview with arrows round it, and the names.
+    theme: Option<ThemeView>,
 }
+
+/// What the theme dialog shows: the chosen names, how much of each has typed
+/// out, and where each sits in its list.
+struct ThemeView {
+    set_name: String,
+    set_shown: usize,
+    set_pos: (usize, usize),
+    scheme_name: String,
+    scheme_shown: usize,
+    scheme_pos: (usize, usize),
+}
+
+/// The theme being chosen in the theme dialog.
+struct ThemeEdit {
+    set: usize,
+    scheme: usize,
+    set_typer: Typer,
+    scheme_typer: Typer,
+}
+
+/// Size of the theme dialog's preview: one tile and a little table around it.
+const THEME_BOX_W: i32 = 56;
+const THEME_BOX_H: i32 = 48;
+/// Height of the theme chooser: up arrow, box, down arrow, gap, two name rows.
+const THEME_H: i32 = 10 + THEME_BOX_H + 12 + 4 + 20;
+/// The tile shown in the theme preview (the bird: several ink colours).
+const THEME_FACE: Face = Face::Bam(1);
 
 const DIALOG_W: i32 = 252;
 /// Gap between dialog buttons, in pixels.
@@ -251,7 +291,19 @@ impl Dialog {
 
     /// Height of the text lines plus the picker, if any.
     fn content_h(&self) -> i32 {
-        self.lines.len() as i32 * 10 + if self.picker.is_some() { 14 + PREVIEW_H + 4 } else { 0 }
+        self.lines.len() as i32 * 10
+            + if self.picker.is_some() { 14 + PREVIEW_H + 4 } else { 0 }
+            + if self.theme.is_some() { THEME_H } else { 0 }
+    }
+
+    /// Top of the theme chooser (its up arrow).
+    fn theme_y(&self) -> i32 {
+        self.picker_y()
+    }
+
+    /// The theme preview box: x, y, w, h.
+    fn theme_box(&self) -> (i32, i32, i32, i32) {
+        (W / 2 - THEME_BOX_W / 2, self.theme_y() + 10, THEME_BOX_W, THEME_BOX_H)
     }
 
     /// y of the picker's `< NAME >` row.
@@ -282,6 +334,17 @@ impl Dialog {
             let (lx, rx) = (W / 2 - ARROW_DX, W / 2 + ARROW_DX);
             out.push(Button { label: "<", action: Action::LayoutPrev, text_x: lx - 2, text_y: py, hit: (dx + 4, py - 4, lx + 10 - (dx + 4), 15) });
             out.push(Button { label: ">", action: Action::LayoutNext, text_x: rx - 2, text_y: py, hit: (rx - 8, py - 4, dx + dw - 4 - (rx - 8), 15) });
+        }
+        if self.theme.is_some() {
+            // Arrows round the preview: left / right change the tile set,
+            // up / down the colours. Hit areas fill the space round the box.
+            let (dx, _, dw, _) = self.rect();
+            let (bx, by, bw, bh) = self.theme_box();
+            let cy = by + bh / 2 - 3;
+            out.push(Button { label: "^", action: Action::SchemePrev, text_x: W / 2 - 2, text_y: by - 9, hit: (bx, by - 12, bw, 12) });
+            out.push(Button { label: "⌄", action: Action::SchemeNext, text_x: W / 2 - 2, text_y: by + bh + 3, hit: (bx, by + bh, bw, 12) });
+            out.push(Button { label: "<", action: Action::SetPrev, text_x: bx - 16, text_y: cy, hit: (dx + 4, by, bx - (dx + 4), bh) });
+            out.push(Button { label: ">", action: Action::SetNext, text_x: bx + bw + 12, text_y: cy, hit: (bx + bw, by, dx + dw - 4 - (bx + bw), bh) });
         }
         out
     }
@@ -353,9 +416,17 @@ pub struct Game {
     /// All sounds off (typing and match).
     pub muted: bool,
     assets: Assets,
-    /// Set by `T` (next set) / `R` (reload): the tile set index the main loop
-    /// should load asynchronously and hand back through `set_assets`.
+    /// A tile set the main loop should load and install through `set_assets`
+    /// (a theme accepted before its preview had loaded).
     pub asset_request: Option<usize>,
+    /// Theme dialog open: the tile set and colours being tried.
+    theme: Option<ThemeEdit>,
+    /// Tile sets loaded for the theme preview, by index.
+    previews: Vec<(usize, Assets)>,
+    /// A tile set the main loop should load for the theme preview, and whether
+    /// to re-read the set list and palettes first (reload); handed back through
+    /// `set_preview`.
+    pub preview_request: Option<(usize, bool)>,
     bar: Vec<Button>,
     bar_hover: Option<usize>,
     bar_flash: Option<(usize, f32)>,
@@ -422,6 +493,9 @@ impl Game {
             muted: false,
             assets,
             asset_request: None,
+            theme: None,
+            previews: vec![],
+            preview_request: None,
             bar: layout_buttons(),
             bar_hover: None,
             bar_flash: None,
@@ -470,14 +544,104 @@ impl Game {
         if schemes.is_empty() {
             return;
         }
-        let current = self.schemes[self.scheme].name.clone();
-        self.scheme = schemes.iter().position(|s| s.name == current).unwrap_or(0);
+        let find = |old: usize| schemes.iter().position(|s| s.name == self.schemes[old].name).unwrap_or(0);
+        self.scheme = find(self.scheme);
+        if let Some(t) = &self.theme {
+            let k = find(t.scheme);
+            self.theme.as_mut().unwrap().scheme = k;
+        }
         self.schemes = schemes;
     }
 
-    /// RGB for each palette slot in the active colour scheme.
+    /// Install a tile set loaded for the theme preview. After a reload this also
+    /// replaces the list of set names and reports the result.
+    pub fn set_preview(&mut self, set: usize, assets: Assets, tile_sets: Vec<String>, reloaded: bool) {
+        if reloaded {
+            let s = format!("RELOADED. {}", assets.status);
+            self.say(&s);
+        }
+        self.tile_sets = tile_sets;
+        self.previews.retain(|(k, _)| *k != set);
+        self.previews.push((set, assets));
+        if let Some(t) = &mut self.theme {
+            t.set = t.set.min(self.tile_sets.len().saturating_sub(1));
+        }
+    }
+
+    /// The art to preview tile set `set` with, if it has loaded.
+    fn preview_assets(&self, set: usize) -> Option<&Assets> {
+        match self.previews.iter().find(|(k, _)| *k == set) {
+            Some((_, a)) => Some(a),
+            None if set == self.tile_set => Some(&self.assets),
+            None => None,
+        }
+    }
+
+    /// RGB for each palette slot in the active colour scheme (the one being
+    /// tried while the theme dialog is open, so the whole screen previews it).
     pub fn palette(&self) -> &[Rgb; SLOTS] {
-        &self.schemes[self.scheme].rgb
+        let k = self.theme.as_ref().map_or(self.scheme, |t| t.scheme);
+        &self.schemes[k].rgb
+    }
+
+    /// Open the theme dialog on the current tile set and colours.
+    pub fn open_theme(&mut self) {
+        if self.theme.is_none() {
+            self.theme = Some(ThemeEdit {
+                set: self.tile_set,
+                scheme: self.scheme,
+                set_typer: Typer::default(),
+                scheme_typer: Typer::default(),
+            });
+            self.say("THEME: < > CHANGE THE TILES, ^ ⌄ THE COLOURS.");
+        }
+    }
+
+    /// Show the theme dialog's names fully typed (screenshots).
+    pub fn finish_theme_typing(&mut self) {
+        if let Some(t) = &mut self.theme {
+            for ty in [&mut t.set_typer, &mut t.scheme_typer] {
+                ty.t = 99.0;
+                ty.typed = usize::MAX / 2;
+            }
+        }
+    }
+
+    /// Theme dialog: step the tile set by `d` (wrapping), loading it if needed.
+    fn theme_step_set(&mut self, d: isize) {
+        let n = self.tile_sets.len().max(1) as isize;
+        let Some(t) = &mut self.theme else { return };
+        t.set = (t.set as isize + d).rem_euclid(n) as usize;
+        t.set_typer.restart();
+        let set = t.set;
+        if self.preview_assets(set).is_none() {
+            self.preview_request = Some((set, false));
+        }
+    }
+
+    /// Theme dialog: step the colour scheme by `d` (wrapping).
+    fn theme_step_scheme(&mut self, d: isize) {
+        let n = self.schemes.len() as isize;
+        if let Some(t) = &mut self.theme {
+            t.scheme = (t.scheme as isize + d).rem_euclid(n) as usize;
+            t.scheme_typer.restart();
+        }
+    }
+
+    /// Theme dialog: keep the tile set and colours being tried.
+    fn theme_accept(&mut self) {
+        let Some(t) = self.theme.take() else { return };
+        self.scheme = t.scheme;
+        if let Some(k) = self.previews.iter().position(|(i, _)| *i == t.set) {
+            self.assets = self.previews.swap_remove(k).1;
+            self.tile_set = t.set;
+        } else if t.set != self.tile_set {
+            self.asset_request = Some(t.set); // still loading: install when it arrives
+        }
+        self.previews.clear();
+        let name = self.tile_sets.get(t.set).cloned().unwrap_or_default();
+        let s = format!("THEME: {} / {}.", name, self.schemes[self.scheme].name);
+        self.say(&s);
     }
 
     fn tile_set_name(&self) -> &str {
@@ -555,7 +719,11 @@ impl Game {
         let picker = self
             .picker
             .is_some_and(|idx| self.picker_typer.typed < board::LAYOUTS[idx].name.chars().count());
-        !self.msg_finished() || picker
+        let theme = self.theme.as_ref().is_some_and(|t| {
+            !t.set_typer.done(self.tile_sets.get(t.set).map_or("", |n| n.as_str()))
+                || !t.scheme_typer.done(&self.schemes[t.scheme].name)
+        });
+        !self.msg_finished() || picker || theme
     }
 
     /// Sound the tiles the deal placed since last frame: a click for every
@@ -768,6 +936,13 @@ impl Game {
             let sound = self.picker_typer.step(board::LAYOUTS[idx].name, dt);
             self.play_typing(sound);
         }
+        if let Some(t) = &mut self.theme {
+            // Both names type at once; at most one sound per frame.
+            let set_name = self.tile_sets.get(t.set).map_or("", |n| n.as_str());
+            let a = t.set_typer.step(set_name, dt);
+            let b = t.scheme_typer.step(&self.schemes[t.scheme].name, dt);
+            self.play_typing(a.or(b));
+        }
         let was_dealing = self.dealing();
         self.deal_t += dt;
         self.deal_clicks();
@@ -807,16 +982,26 @@ impl Game {
                 (&[KeyCode::M], Action::Mute),
                 (&[KeyCode::C], Action::Crt),
             ]
+        } else if self.theme.is_some() {
+            // The theme dialog takes the keyboard while it is open.
+            &[
+                (&[KeyCode::Left], Action::SetPrev),
+                (&[KeyCode::Right], Action::SetNext),
+                (&[KeyCode::Up], Action::SchemePrev),
+                (&[KeyCode::Down], Action::SchemeNext),
+                (&[KeyCode::A, KeyCode::Y, KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space], Action::ThemeAccept),
+                (&[KeyCode::C, KeyCode::N, KeyCode::Escape, KeyCode::Backspace], Action::ThemeCancel),
+                (&[KeyCode::R], Action::ThemeReload),
+                (&[KeyCode::M], Action::Mute),
+            ]
         } else {
             &[
                 (&[KeyCode::H], Action::Hint),
                 (&[KeyCode::U, KeyCode::Z, KeyCode::Backspace], Action::Undo),
                 (&[KeyCode::S], Action::Shuffle),
                 (&[KeyCode::N], Action::New),
-                (&[KeyCode::T], Action::Tiles),
-                (&[KeyCode::P], Action::Palette),
+                (&[KeyCode::T], Action::Theme),
                 (&[KeyCode::F], Action::Dim),
-                (&[KeyCode::R], Action::Reload),
                 (&[KeyCode::C], Action::Crt),
                 (&[KeyCode::M], Action::Mute),
                 (&[KeyCode::Escape], Action::Quit),
@@ -863,8 +1048,8 @@ impl Game {
             }
         }
 
-        if self.picker.is_some() || self.dealing() {
-            // The board is behind the new-board dialog, or still being dealt.
+        if self.modal() || self.dealing() {
+            // The board is behind the new-board or theme dialog, or still being dealt.
             self.hover = None;
             return true;
         }
@@ -886,6 +1071,24 @@ impl Game {
                 buttons: vec![("[Y]ES", Action::NewYes), ("[N]O", Action::NewNo)],
                 picker: Some(idx),
                 picker_shown: self.picker_typer.typed,
+                theme: None,
+            });
+        }
+        if let Some(t) = &self.theme {
+            return Some(Dialog {
+                title: "-- THEME --",
+                lines: vec![],
+                buttons: vec![("[C]ANCEL", Action::ThemeCancel), ("[A]CCEPT", Action::ThemeAccept), ("[R]ELOAD", Action::ThemeReload)],
+                picker: None,
+                picker_shown: 0,
+                theme: Some(ThemeView {
+                    set_name: self.tile_sets.get(t.set).cloned().unwrap_or_default(),
+                    set_shown: t.set_typer.typed,
+                    set_pos: (t.set + 1, self.tile_sets.len()),
+                    scheme_name: self.schemes[t.scheme].name.clone(),
+                    scheme_shown: t.scheme_typer.typed,
+                    scheme_pos: (t.scheme + 1, self.schemes.len()),
+                }),
             });
         }
         match self.state {
@@ -900,6 +1103,7 @@ impl Game {
                     buttons,
                     picker: None,
                     picker_shown: 0,
+                    theme: None,
                 })
             }
             State::Stuck => Some(Dialog {
@@ -908,13 +1112,25 @@ impl Game {
                 buttons: vec![("[S]HUFFLE", Action::Shuffle), ("[U]NDO", Action::Undo), ("[N]EW", Action::New)],
                 picker: None,
                 picker_shown: 0,
+                theme: None,
             }),
             State::Playing => None,
         }
     }
 
     /// Perform an action from a hotkey or a bar button. Returns false to quit.
+    /// True while the new-board or theme dialog is open.
+    fn modal(&self) -> bool {
+        self.picker.is_some() || self.theme.is_some()
+    }
+
     fn run(&mut self, action: Action) -> bool {
+        // While a dialog is open, the bar's game actions wait (sound, scanlines
+        // and quit still work).
+        let game_action = matches!(action, Action::Hint | Action::Undo | Action::Shuffle | Action::New | Action::Theme | Action::Dim);
+        if self.modal() && game_action {
+            return true;
+        }
         match action {
             Action::Hint => self.show_hint(),
             Action::Undo => self.undo(),
@@ -937,17 +1153,29 @@ impl Game {
                     self.picker_typer.restart();
                 }
             }
-            Action::Tiles => self.asset_request = Some((self.tile_set + 1) % self.tile_sets.len().max(1)),
-            Action::Palette => {
-                self.scheme = (self.scheme + 1) % self.schemes.len();
-                let s = format!("COLOURS: {}.", self.schemes[self.scheme].name);
-                self.say(&s);
+            Action::Theme => self.open_theme(),
+            Action::SetPrev => self.theme_step_set(-1),
+            Action::SetNext => self.theme_step_set(1),
+            Action::SchemePrev => self.theme_step_scheme(-1),
+            Action::SchemeNext => self.theme_step_scheme(1),
+            Action::ThemeAccept => self.theme_accept(),
+            Action::ThemeCancel => {
+                if self.theme.take().is_some() {
+                    self.previews.clear();
+                    self.say("THEME UNCHANGED.");
+                }
+            }
+            Action::ThemeReload => {
+                if let Some(t) = &self.theme {
+                    // Re-read the set list, the palettes and the tried set's art.
+                    self.previews.clear();
+                    self.preview_request = Some((t.set, true));
+                }
             }
             Action::Dim => {
                 self.dim = !self.dim;
                 self.say(if self.dim { "BLOCKED TILES DIMMED." } else { "BLOCKED TILES SHOWN NORMALLY." });
             }
-            Action::Reload => self.asset_request = Some(self.tile_set),
             Action::Crt => {
                 self.crt = !self.crt;
                 self.say(if self.crt { "CRT SCANLINES ON." } else { "CRT SCANLINES OFF." });
@@ -1177,6 +1405,34 @@ impl Game {
 
         if let Some(d) = self.dialog() {
             draw_dialog(fb, &d, self.dialog_hover);
+            if let Some(t) = &self.theme {
+                self.draw_theme_preview(fb, &d, t.set);
+            }
+        }
+    }
+
+    /// The theme preview: a patch of table with one tile on it, in the tile set
+    /// being tried (the colours are already the ones being tried).
+    fn draw_theme_preview(&self, fb: &mut Fb, d: &Dialog, set: usize) {
+        let (bx, by, bw, bh) = d.theme_box();
+        fb.rect(bx, by, bw, bh, BG);
+        // The table's dot lattice, lined up with the one behind the board.
+        for (r, y) in (BOARD_TOP + 2..BOARD_BOT).step_by(5).enumerate() {
+            if y <= by || y >= by + bh - 1 {
+                continue;
+            }
+            let off = if r % 2 == 1 { 5 } else { 0 };
+            for x in (off..W).step_by(10).filter(|&x| x > bx && x < bx + bw - 1) {
+                fb.pset(x, y, DIM);
+            }
+        }
+        fb.outline(bx, by, bw, bh, DKGREEN);
+        match self.preview_assets(set) {
+            Some(assets) => {
+                let (tx, ty) = (bx + (bw - TILE_W) / 2, by + (bh - TILE_H) / 2);
+                draw_tile(fb, assets, tx + FACE_OX, ty + FACE_OY, Some(THEME_FACE), false, false, false, false, false);
+            }
+            None => fb.text_center(W / 2, by + bh / 2 - 3, "...", DKGREEN, DKGREEN),
         }
     }
 
@@ -1266,6 +1522,22 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         let count = format!("{}/{}", idx + 1, board::LAYOUTS.len());
         fb.text(x + w - 8 - Fb::text_w(&count) + 1, y + 8, &count, DKGREEN);
         draw_layout_preview(fb, idx, W / 2, py + 14 + PREVIEW_H / 2);
+    }
+    if let Some(t) = &d.theme {
+        let ny = d.theme_y() + 10 + THEME_BOX_H + 16;
+        let (lx, nx) = (W / 2 - 60, W / 2 - 12);
+        let rows = [("TILES", &t.set_name, t.set_shown, t.set_pos), ("COLOURS", &t.scheme_name, t.scheme_shown, t.scheme_pos)];
+        for (k, (label, name, shown, (i, n))) in rows.into_iter().enumerate() {
+            let y = ny + k as i32 * 10;
+            fb.text(lx, y, label, DKGREEN);
+            let typed: String = name.chars().take(shown).collect();
+            let end = fb.text(nx, y, &typed, AMBER);
+            if shown < name.chars().count() {
+                fb.text(end, y, "█", AMBER);
+            }
+            let count = format!("{i}/{n}");
+            fb.text(x + w - 8 - Fb::text_w(&count) + 1, y, &count, DKGREEN);
+        }
     }
     for (k, b) in d.layout_buttons().iter().enumerate() {
         draw_button(fb, b.label, b.text_x, b.text_y, GREEN, hover == Some(k), false);
@@ -1576,6 +1848,49 @@ mod tests {
         g.run(Action::New);
         g.show_latest_now();
         assert!(g.text_typing());
+    }
+
+    #[test]
+    fn theme_dialog_previews_then_accepts_or_cancels() {
+        let mut g = test_game();
+        g.tile_sets = vec!["DEFAULT".into(), "OTHER".into()];
+        g.schemes = vec![palette::builtin(), Scheme { name: "TEST".into(), rgb: [[1, 2, 3]; SLOTS] }];
+        g.set_deal_time(99.0);
+        // Cancel: colours preview live on the whole screen, then go back.
+        g.run(Action::Theme);
+        g.run(Action::SchemeNext);
+        assert_eq!(g.palette()[0], [1, 2, 3]);
+        g.run(Action::ThemeCancel);
+        assert!(g.theme.is_none());
+        assert_eq!((g.scheme, g.palette()[0]), (0, palette::PALETTE[0]));
+        // A set that isn't loaded yet asks the main loop for it.
+        g.run(Action::Theme);
+        g.run(Action::SetNext);
+        assert_eq!(g.preview_request, Some((1, false)));
+        g.set_preview(1, Assets::builtin(), g.tile_sets.clone(), false);
+        assert!(g.preview_assets(1).is_some());
+        // Wrapping both ways, then accept installs the tried set and colours.
+        g.run(Action::SchemePrev);
+        g.run(Action::ThemeAccept);
+        assert!(g.theme.is_none());
+        assert_eq!((g.tile_set, g.scheme), (1, 1));
+        // Game actions wait while the dialog is open.
+        g.run(Action::Theme);
+        g.run(Action::New);
+        assert!(g.picker.is_none());
+        // The arrows and buttons sit inside the dialog without overlapping.
+        let d = g.dialog().unwrap();
+        let (x, y, w, h) = d.rect();
+        let bs = d.layout_buttons();
+        assert_eq!(bs.len(), 7);
+        for (k, b) in bs.iter().enumerate() {
+            let (bx, by, bw, bh) = b.hit;
+            assert!(bx >= x && by >= y && bx + bw <= x + w && by + bh <= y + h, "{} sticks out", b.label);
+            for c in &bs[k + 1..] {
+                let (cx, cy, cw, ch) = c.hit;
+                assert!(bx + bw <= cx || cx + cw <= bx || by + bh <= cy || cy + ch <= by, "{} overlaps {}", b.label, c.label);
+            }
+        }
     }
 
     #[test]
