@@ -374,8 +374,8 @@ fn draw_button(fb: &mut Fb, label: &str, x: i32, y: i32, normal: u8, hover: bool
         fb.rect(x - 2, y - 2, w + 4, 11, AMBER);
         fb.text_keys_br(x, y, label, BG, BG, BG);
     } else if hover {
-        fb.rect(x - 2, y - 2, w + 4, 11, DKGREEN);
-        fb.text_keys_br(x, y, label, GREEN, AMBER, GREEN);
+        fb.rect(x - 2, y - 2, w + 4, 11, UI_DK);
+        fb.text_keys_br(x, y, label, UI, AMBER, UI);
     } else {
         fb.text_keys(x, y, label, normal, AMBER);
     }
@@ -1272,7 +1272,7 @@ impl Game {
             self.ghosts.push(Ghost { x: sx, y: sy, t: 0.0 });
             let ink = self.faces[i].ink();
             for _ in 0..26 {
-                let c = [AMBER, IVORY, GREEN, ink][gen_range(0, 4) as usize];
+                let c = [AMBER, TILE, GREEN, ink][gen_range(0, 4) as usize];
                 self.particles.push(Particle {
                     x: (sx + gen_range(0, FW)) as f32,
                     y: (sy + gen_range(0, FH)) as f32,
@@ -1439,7 +1439,7 @@ impl Game {
             let k = (g.t * 40.0) as i32;
             let c = if g.t < 0.12 { AMBER } else if g.t < 0.24 { GREEN } else { DKGREEN };
             if g.t < 0.06 {
-                fb.rect(g.x, g.y, FW, FH, IVORY);
+                fb.rect(g.x, g.y, FW, FH, TILE);
             }
             fb.outline(g.x - k, g.y - k, FW + 2 * k, FH + 2 * k, c);
         }
@@ -1473,13 +1473,13 @@ impl Game {
                 fb.pset(x, y, DIM);
             }
         }
-        fb.outline(bx, by, bw, bh, DKGREEN);
+        fb.outline(bx, by, bw, bh, UI_DK);
         match self.preview_assets(set) {
             Some(assets) => {
                 let (tx, ty) = (bx + (bw - TILE_W) / 2, by + (bh - TILE_H) / 2);
                 draw_tile(fb, assets, tx + FACE_OX, ty + FACE_OY, Some(THEME_FACE), false, false, false, false, false);
             }
-            None => fb.text_center(W / 2, by + bh / 2 - 3, "...", DKGREEN, DKGREEN),
+            None => fb.text_center(W / 2, by + bh / 2 - 3, "...", UI_DK, UI_DK),
         }
     }
 
@@ -1491,30 +1491,30 @@ impl Game {
             self.tile_set_name(),
             self.schemes[self.scheme].name
         );
-        fb.text(x + 6, 4, &name, DKGREEN);
+        fb.text(x + 6, 4, &name, UI_DK);
         let stats = format!(
             "TILES {:3} | MOVES {:2} | TIME {}",
             self.remaining(),
             self.moves,
             fmt_time(self.elapsed)
         );
-        fb.text(W - 4 - Fb::text_w(&stats) + 1, 4, &stats, GREEN);
+        fb.text(W - 4 - Fb::text_w(&stats) + 1, 4, &stats, UI);
         dashed(fb, 13);
 
         // Prompt line with typewriter reveal and blinking block cursor.
         let shown = self.shown_chars();
         let line: String = self.msg.chars().take(shown).collect();
         let x = fb.text(4, PROMPT_Y, ">", AMBER);
-        let x = fb.text_keys(x + 6, PROMPT_Y, &line, GREEN, AMBER);
+        let x = fb.text_keys(x + 6, PROMPT_Y, &line, UI, AMBER);
         if ((self.t * 2.5) as i32) % 2 == 0 {
-            fb.text(x, PROMPT_Y, "█", GREEN);
+            fb.text(x, PROMPT_Y, "█", UI);
         }
 
         dashed(fb, RULE_Y);
         for (k, b) in self.bar.iter().enumerate() {
             let pressed = self.bar_flash.map_or(false, |(f, _)| f == k);
             // MUTE shows in red while sound is off.
-            let normal = if b.action == Action::Mute && self.muted { RED } else { DKGREEN };
+            let normal = if b.action == Action::Mute && self.muted { RED } else { UI_DK };
             draw_button(fb, b.label, b.text_x, b.text_y, normal, self.bar_hover == Some(k), pressed);
         }
     }
@@ -1544,20 +1544,20 @@ fn fmt_time(t: f32) -> String {
 fn dashed(fb: &mut Fb, y: i32) {
     let mut x = 0;
     while x < W {
-        fb.hline(x, y, 4, DKGREEN);
+        fb.hline(x, y, 4, UI_DK);
         x += 6;
     }
 }
 
 fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
     let (x, y, w, h) = d.rect();
-    fb.rect(x + 6, y + 4, w, h, DKGREEN); // drop shadow
+    fb.rect(x + 6, y + 4, w, h, UI_DK); // drop shadow
     fb.rect(x, y, w, h, BG);
-    fb.outline(x, y, w, h, GREEN);
-    fb.outline(x + 2, y + 2, w - 4, h - 4, GREEN);
+    fb.outline(x, y, w, h, UI);
+    fb.outline(x + 2, y + 2, w - 4, h - 4, UI);
     fb.text_center(W / 2, y + 8, d.title, AMBER, AMBER);
     for (k, l) in d.lines.iter().enumerate() {
-        fb.text_center(W / 2, y + 22 + k as i32 * 10, l, GREEN, AMBER);
+        fb.text_center(W / 2, y + 22 + k as i32 * 10, l, UI, AMBER);
     }
     if let Some(idx) = d.picker {
         let py = d.picker_y();
@@ -1569,7 +1569,7 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
             fb.text(end, py, "█", AMBER);
         }
         let count = format!("{}/{}", idx + 1, board::LAYOUTS.len());
-        fb.text(x + w - 8 - Fb::text_w(&count) + 1, y + 8, &count, DKGREEN);
+        fb.text(x + w - 8 - Fb::text_w(&count) + 1, y + 8, &count, UI_DK);
         draw_layout_preview(fb, idx, W / 2, py + 14 + PREVIEW_H / 2);
     }
     if let Some(t) = &d.theme {
@@ -1578,20 +1578,20 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         let rows = [("TILES", &t.set_name, t.set_shown, t.set_pos), ("COLOURS", &t.scheme_name, t.scheme_shown, t.scheme_pos)];
         for (k, (label, name, shown, (i, n))) in rows.into_iter().enumerate() {
             let y = ny + k as i32 * 10;
-            fb.text(lx, y, label, DKGREEN);
+            fb.text(lx, y, label, UI_DK);
             let typed: String = name.chars().take(shown).collect();
             let end = fb.text(nx, y, &typed, AMBER);
             if shown < name.chars().count() {
                 fb.text(end, y, "█", AMBER);
             }
             let count = format!("{i}/{n}");
-            fb.text(x + w - 8 - Fb::text_w(&count) + 1, y, &count, DKGREEN);
+            fb.text(x + w - 8 - Fb::text_w(&count) + 1, y, &count, UI_DK);
         }
         // CRT row: the [C]RT label is a button (drawn with the others); its value here.
         fb.text(nx, ny + 20, if t.crt { "ON" } else { "OFF" }, AMBER);
     }
     for (k, b) in d.layout_buttons().iter().enumerate() {
-        let normal = if b.action == Action::Crt { DKGREEN } else { GREEN };
+        let normal = if b.action == Action::Crt { UI_DK } else { UI };
         draw_button(fb, b.label, b.text_x, b.text_y, normal, hover == Some(k), false);
     }
 }
@@ -1628,7 +1628,7 @@ fn preview_unit() -> i32 {
 /// above: one block per tile, coloured by height (higher layers brighter and
 /// drawn on top), each with a background-coloured rim so tile edges read.
 fn draw_layout_preview(fb: &mut Fb, idx: usize, cx: i32, cy: i32) {
-    const LAYER_INK: [u8; 5] = [DKGREEN, GREEN, AMBER, IVORY, RED];
+    const LAYER_INK: [u8; 5] = [UI_DK, UI, AMBER, BLUE, RED];
     let pos = (board::LAYOUTS[idx].build)();
     let (minx, maxx, miny, maxy) = grid_bounds(&pos);
     // One scale for every layout (the largest that fits them all), so tiles

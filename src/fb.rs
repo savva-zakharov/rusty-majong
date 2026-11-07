@@ -16,8 +16,8 @@ fn code(ch: char, ink: u8, alt: u8) -> Option<u8> {
         '#' | 'p' => ink,
         'c' => alt,
         'k' => BLACK,
-        'w' => IVORY,
-        's' => IVORY_SH,
+        'u' => UI,
+        'U' => UI_DK,
         'g' => GREEN,
         'd' => DKGREEN,
         'r' => RED,
@@ -158,7 +158,7 @@ impl Fb {
 
     /// Text where anything inside [brackets] is drawn in the key colour.
     pub fn text_keys(&mut self, x: i32, y: i32, s: &str, c: u8, kc: u8) -> i32 {
-        self.text_keys_br(x, y, s, c, kc, DKGREEN)
+        self.text_keys_br(x, y, s, c, kc, UI_DK)
     }
 
     /// Like `text_keys`, with the bracket colour `bc` chosen by the caller

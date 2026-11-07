@@ -6,8 +6,8 @@
 //!
 //! | col | top row (bright)              | bottom row (dark)                   |
 //! |-----|-------------------------------|-------------------------------------|
-//! | 0   | light: built-in faces, text   | light shade                         |
-//! | 1   | primary: text, highlights     | primary dark: dashed rules          |
+//! | 0   | UI: text, frames, buttons     | UI dark: rules, labels, shadows     |
+//! | 1   | primary: face ink, effects    | primary dark                        |
 //! | 2   | red: selection, errors, ink   | red dark                            |
 //! | 3   | highlight: hover, prompt      | highlight dark                      |
 //! | 4   | blue: ink                     | blue dark                           |
@@ -23,7 +23,8 @@
 //! tint's top-row colour (column 7 normally, highlight on hover, red when
 //! selected), grey pixels the colour under it, black pixels the tile body. Cast shadows move a pixel from the top row to the bottom row.
 
-pub const IVORY: u8 = 0;
+/// Interface colour: HUD, command line, bottom bar, dialogs.
+pub const UI: u8 = 0;
 pub const GREEN: u8 = 1;
 pub const RED: u8 = 2;
 pub const AMBER: u8 = 3;
@@ -31,7 +32,8 @@ pub const BLUE: u8 = 4;
 pub const BODY: u8 = 5;
 pub const BG: u8 = 6;
 pub const TILE: u8 = 7;
-pub const IVORY_SH: u8 = 8;
+/// Darker interface colour: dashed rules, labels, button bar, dialog shadows.
+pub const UI_DK: u8 = 8;
 pub const DKGREEN: u8 = 9;
 pub const DKRED: u8 = 10;
 pub const DKAMBER: u8 = 11;
@@ -63,8 +65,9 @@ pub fn shade_of(c: u8) -> u8 {
 }
 
 /// Slots that face art (faces.png) can use. BLACK is the background slot, used
-/// as ink; lattice, tile body and tile colour are scheme roles, not art colours.
-pub const INK: [u8; 11] = [IVORY, GREEN, RED, AMBER, BLUE, BLACK, IVORY_SH, DKGREEN, DKRED, DKAMBER, DKBLUE];
+/// as ink; the UI colours, lattice, tile body and tile colour are scheme roles,
+/// not art colours.
+pub const INK: [u8; 9] = [GREEN, RED, AMBER, BLUE, BLACK, DKGREEN, DKRED, DKAMBER, DKBLUE];
 
 /// Software multiply of a colour by a grey level (0..=255).
 pub const fn mul(c: Rgb, g: u8) -> Rgb {
@@ -83,7 +86,6 @@ pub struct Scheme {
 }
 
 const K: Rgb = [0, 0, 0];
-const P_LIGHT: Rgb = [0xF2, 0xE8, 0xCF];
 const P_PRIMARY: Rgb = [0x2E, 0xD8, 0x6A];
 const P_RED: Rgb = [0xEE, 0x25, 0x3A];
 const P_HIGHLIGHT: Rgb = [0xFF, 0xB0, 0x00];
@@ -93,7 +95,7 @@ const P_BLUE: Rgb = [0x2A, 0x5C, 0xF0];
 /// the fallback when no palette file loads, and the reference faces.png is
 /// snapped to, so face art keeps its slots however the palette files change.
 pub const PALETTE: [Rgb; SLOTS] = [
-    P_LIGHT,
+    P_PRIMARY, // UI
     P_PRIMARY,
     P_RED,
     P_HIGHLIGHT,
@@ -101,7 +103,7 @@ pub const PALETTE: [Rgb; SLOTS] = [
     K, // tile body
     K, // background
     P_PRIMARY, // tile
-    [0xBF, 0xAA, 0x80],
+    mul(P_PRIMARY, GREY), // UI dark
     mul(P_PRIMARY, GREY),
     mul(P_RED, GREY),
     mul(P_HIGHLIGHT, GREY),

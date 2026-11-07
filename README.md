@@ -208,7 +208,8 @@ tiles on a dark screen and ivory tiles in light mode.
 ### faces.png: palette colours
 
 Draw faces in the colours of the default PHOSPHOR palette (`assets/palettes/phosphor.png`). Every
-pixel snaps to the closest of them. Leave the background transparent, since faces are drawn on top of the tile.
+pixel snaps to the closest of their ink colours (columns 1–4 and the background's black, in both
+rows); the UI, tile body, tile and lattice colours are left out. Leave the background transparent, since faces are drawn on top of the tile.
 Other colour schemes recolour the faces automatically (see below).
 
 ### Both files
@@ -303,8 +304,8 @@ and the bottom row their darkened versions:
 
 | Column | Top row (bright) | Bottom row (dark) |
 | --- | --- | --- |
-| 0 | light: built-in faces, light text | light shade |
-| 1 | primary: text | primary dark: dashed rules |
+| 0 | UI: the HUD's figures, command line, dialog frames and text, buttons | UI dark: the HUD's title line, dashed rules, the button bar, labels, dialog shadows |
+| 1 | primary: face ink, removal effects | primary dark |
 | 2 | red: selection, errors, ink | red dark |
 | 3 | highlight: hover, hints, prompt | highlight dark |
 | 4 | blue: ink | blue dark |
@@ -332,6 +333,12 @@ list a folder. To add a palette, copy one of the PNGs, recolour it and add its n
 | ICE | black | black | sky blue | white | rose |
 
 Some things to keep in mind:
+
+- The interface (column 0) has its own colours, separate from the faces' green (column 1), so you
+  can give the HUD, command line, bottom bar and dialogs any colour. The included palettes start
+  with column 0 a copy of column 1, so they look as they always have; repaint it to change the UI.
+  Highlights in the UI (key letters, names being typed, the title) still use the highlight colour
+  (column 3), and a muted `[M]UTE` turns red (column 2).
 
 - Black in face art, such as the bird's eye, is drawn in the background colour (column 6), so it
   always matches the table.
