@@ -88,11 +88,34 @@ jobs:
             rustup target add armv7-linux-androideabi aarch64-linux-android
             cargo quad-apk build --release
           '
-      - name: Collect APK
+      - name: Sign APK
+        # cargo-quad-apk leaves release APKs unsigned, and Android only installs
+        # signed ones. With the ANDROID_KEYSTORE (base64 of a .jks file) and
+        # ANDROID_KEYSTORE_PASSWORD repository secrets set, every build is
+        # signed with that key, so new versions install over old ones. Without
+        # them, a throwaway key is made for this run: the APK installs, but
+        # updating from another build means uninstalling first.
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           apk=$(find target -name '*.apk' -path '*release*' | head -n 1)
           test -n "$apk"
-          cp "$apk" "rusty-majong-${GITHUB_REF_NAME}-android.apk"
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > signing.jks
+            pass="$KEYSTORE_PASS"
+          else
+            echo "::warning::No ANDROID_KEYSTORE secret: signing with a throwaway key."
+            pass=android
+            keytool -genkeypair -keystore signing.jks -storepass "$pass" -keypass "$pass" \
+              -alias rusty-majong -dname "CN=Rusty Majong" -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          "$bt/zipalign" -f -p 4 "$apk" aligned.apk
+          out="rusty-majong-${GITHUB_REF_NAME}-android.apk"
+          "$bt/apksigner" sign --ks signing.jks --ks-pass "pass:$pass" --key-pass "pass:$pass" --out "$out" aligned.apk
+          "$bt/apksigner" verify --print-certs "$out"
+          rm signing.jks
       - uses: actions/upload-artifact@v4
         with:
           name: android
