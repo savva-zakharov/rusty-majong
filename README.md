@@ -179,8 +179,14 @@ Rows in `faces.png`:
 1. dots 1–9
 2. bamboo 1–9
 3. characters 1–9
-4. winds E S W N, then dragons red, green, white (the last 2 cells are unused)
-5. flowers 1–4, then seasons 1–4 (the last cell is unused)
+4. winds E S W N, then dragons red, green, white, then birds 2 and 3
+5. flowers 1–4, then seasons 1–4, then bird 4
+
+The four 1 of bamboo tiles each have their own bird: bird 1 is the first cell of the bamboo row,
+and birds 2–4 fill the three cells at the bottom right. All four match each other, like the
+flowers. The included `faces.png` has your bird mirrored, recoloured (blue and red swapped), and
+both, in those cells as placeholders to repaint. A sheet that leaves them empty shows bird 1
+there instead, so older sheets still work.
 
 ### tile.png: three tones, coloured by multiplication
 

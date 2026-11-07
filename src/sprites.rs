@@ -102,9 +102,14 @@ impl Sprite {
 
 /// Grid cell of each face in faces.png.
 /// Row 0 dots 1-9, row 1 bamboo 1-9, row 2 characters 1-9,
-/// row 3 winds E S W N + dragons red green white, row 4 flowers 1-4 + seasons 1-4.
+/// row 3 winds E S W N + dragons red green white + birds 2 and 3,
+/// row 4 flowers 1-4 + seasons 1-4 + bird 4. Bird 1 is the 1 of bamboo cell.
 pub fn face_cell(f: Face) -> (i32, i32) {
     match f {
+        Face::Bird(1) => (0, 1),
+        Face::Bird(2) => (7, 3),
+        Face::Bird(3) => (8, 3),
+        Face::Bird(_) => (8, 4),
         Face::Dots(n) => (n as i32 - 1, 0),
         Face::Bam(n) => (n as i32 - 1, 1),
         Face::Chr(n) => (n as i32 - 1, 2),
@@ -126,7 +131,24 @@ pub fn all_faces() -> Vec<Face> {
     for n in 1..=3 {
         v.push(Face::Dragon(n));
     }
+    v.extend([Face::Bird(2), Face::Bird(3), Face::Bird(4)]);
     v
+}
+
+/// Birds 2-4 live in cells older faces.png files left empty: show bird 1
+/// in any of them that has no pixels, so those sheets still work.
+fn fill_blank_birds(faces: &mut [Sprite]) {
+    let idx = |f: Face| {
+        let (c, r) = face_cell(f);
+        (r * SHEET_COLS + c) as usize
+    };
+    let bird = faces[idx(Face::Bird(1))].clone();
+    for n in 2..=4 {
+        let k = idx(Face::Bird(n));
+        if faces[k].px.iter().all(|&p| p == TRANSPARENT) {
+            faces[k] = bird.clone();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -170,6 +192,7 @@ impl Assets {
                     .map(|p| if p[3] < 128 { TRANSPARENT } else { nearest(p[0], p[1], p[2]) })
                     .collect();
                 a.faces = split_sheet(&Sprite { w: sw, h: sh, px });
+                fill_blank_birds(&mut a.faces);
                 loaded.push("FACES.PNG");
             }
             Ok(None) => {}
@@ -412,7 +435,7 @@ mod tests {
             assert!(c >= 0 && c < SHEET_COLS && r >= 0 && r < SHEET_ROWS);
             assert!(seen.insert((c, r)), "{f:?} shares a cell");
         }
-        assert_eq!(seen.len(), 42);
+        assert_eq!(seen.len(), 45, "every cell of the 9x5 sheet is used");
     }
 
     #[test]

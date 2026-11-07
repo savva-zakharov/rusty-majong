@@ -15,6 +15,9 @@ pub enum Face {
     Dragon(u8), // 1 red, 2 green, 3 white
     Flower(u8),
     Season(u8),
+    /// The four 1-of-bamboo tiles, each with its own bird picture (1..=4).
+    /// They match each other, like flowers.
+    Bird(u8),
 }
 
 impl Face {
@@ -23,6 +26,7 @@ impl Face {
         match self {
             Face::Dots(n) => (0, n),
             Face::Bam(n) => (1, n),
+            Face::Bird(_) => (1, 1),
             Face::Chr(n) => (2, n),
             Face::Wind(n) => (3, n),
             Face::Dragon(n) => (4, n),
@@ -43,6 +47,7 @@ impl Face {
         match self {
             Face::Dots(n) => format!("{n} OF DOTS"),
             Face::Bam(n) => format!("{n} OF BAMBOO"),
+            Face::Bird(_) => "1 OF BAMBOO".into(),
             Face::Chr(n) => format!("{n} OF CHARACTERS"),
             Face::Wind(n) => format!("{} WIND", WINDS[n as usize - 1]),
             Face::Dragon(n) => format!("{} DRAGON", DRAGONS[n as usize - 1]),
@@ -55,7 +60,7 @@ impl Face {
     pub fn ink(self) -> u8 {
         match self {
             Face::Dots(_) => BLUE,
-            Face::Bam(_) => GREEN,
+            Face::Bam(_) | Face::Bird(_) => GREEN,
             Face::Chr(_) => RED,
             Face::Wind(_) => BLUE,
             Face::Dragon(1) => RED,
@@ -71,10 +76,15 @@ pub fn full_set_pairs() -> Vec<(Face, Face)> {
     let mut v = Vec::with_capacity(72);
     for n in 1..=9 {
         for f in [Face::Dots(n), Face::Bam(n), Face::Chr(n)] {
+            if f == Face::Bam(1) {
+                continue; // the four birds below
+            }
             v.push((f, f));
             v.push((f, f));
         }
     }
+    v.push((Face::Bird(1), Face::Bird(2)));
+    v.push((Face::Bird(3), Face::Bird(4)));
     for n in 1..=4 {
         v.push((Face::Wind(n), Face::Wind(n)));
         v.push((Face::Wind(n), Face::Wind(n)));
@@ -380,7 +390,23 @@ pub fn draw_face(fb: &mut Fb, x: i32, y: i32, face: Face) {
                 fb.sprite(cx + dx - 2, cy + dy - 2, &DOT, c, c);
             }
         }
-        Face::Bam(1) => fb.sprite_c(cx, cy, &BIRD, GREEN, GREEN),
+        Face::Bam(1) | Face::Bird(1) => fb.sprite_c(cx, cy, &BIRD, GREEN, GREEN),
+        Face::Bird(n) => {
+            // Built-in variants: 2 faces the other way, 3 swaps blue and red, 4 both.
+            let rows: Vec<String> = BIRD
+                .iter()
+                .map(|r| {
+                    let r: String = if n == 3 { r.to_string() } else { r.chars().rev().collect() };
+                    if n == 2 {
+                        r
+                    } else {
+                        r.chars().map(|c| match c { 'b' => 'r', 'r' => 'b', c => c }).collect()
+                    }
+                })
+                .collect();
+            let rows: Vec<&str> = rows.iter().map(|r| r.as_str()).collect();
+            fb.sprite_c(cx, cy, &rows, GREEN, GREEN);
+        }
         Face::Bam(n) => {
             for &(dx, dy, c) in bam_layout(n) {
                 fb.sprite(cx + dx - 1, cy + dy - 4, &STICK, c, c);

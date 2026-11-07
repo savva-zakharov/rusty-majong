@@ -2004,6 +2004,58 @@ mod tests {
     }
 
     #[test]
+    fn the_four_birds_have_their_own_faces_and_match() {
+        use crate::sprites::face_cell;
+        let pairs = art::full_set_pairs();
+        let faces: Vec<Face> = pairs.iter().flat_map(|&(a, b)| [a, b]).collect();
+        assert_eq!(faces.len(), 144);
+        let birds: Vec<Face> = faces.iter().copied().filter(|f| matches!(f, Face::Bird(_))).collect();
+        assert_eq!(birds.len(), 4);
+        assert!(!faces.contains(&Face::Bam(1)), "the birds replace the plain 1 of bamboo");
+        let mut cells: Vec<(i32, i32)> = birds.iter().map(|&f| face_cell(f)).collect();
+        cells.sort();
+        cells.dedup();
+        assert_eq!(cells.len(), 4, "each bird has its own cell");
+        for &a in &birds {
+            for &b in &birds {
+                assert!(a.matches(b));
+            }
+            assert_eq!(a.name(), "1 OF BAMBOO");
+        }
+        // Every face uses a different cell.
+        let mut all: Vec<(i32, i32)> = crate::sprites::all_faces().into_iter().map(face_cell).collect();
+        let n = all.len();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), n);
+    }
+
+    #[test]
+    fn empty_bird_cells_fall_back_to_the_first_bird() {
+        // A sheet with only the first bird drawn (like faces.png before birds 2-4).
+        let (w, h) = (crate::sprites::SHEET_COLS * FW, crate::sprites::SHEET_ROWS * FH);
+        let mut img = macroquad::prelude::Image::gen_image_color(w as u16, h as u16, macroquad::prelude::BLANK);
+        // A small mark in the first bird's cell (column 0, row 1). export_png
+        // writes rows bottom-up, so draw it flipped.
+        for y in 5..10 {
+            for x in 5..10 {
+                img.set_pixel(x as u32, (h - 1 - (FH + y)) as u32, macroquad::prelude::Color::from_rgba(42, 92, 240, 255));
+            }
+        }
+        let png = {
+            let tmp = std::env::temp_dir().join("rusty-majong-birds-test.png");
+            img.export_png(&tmp.to_string_lossy());
+            std::fs::read(&tmp).unwrap()
+        };
+        let a = Assets::from_png_bytes(None, Some(png));
+        let first = a.face(Face::Bird(1)).px.clone();
+        assert!(first.iter().any(|&p| p != crate::sprites::TRANSPARENT), "the mark landed in bird 1's cell");
+        for n in 2..=4 {
+            assert_eq!(a.face(Face::Bird(n)).px, first, "bird {n}");
+        }
+    }
+
+    #[test]
     fn bar_buttons_tile_the_bar_without_gaps() {
         let bar = layout_buttons();
         assert_eq!(bar.len(), buttons().len());
