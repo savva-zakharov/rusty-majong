@@ -64,15 +64,15 @@ async fn main() {
     // `--tiles NAME` / `--colours NAME` pick the starting tile set / colour scheme.
     let arg = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
     let root = game::assets_dir();
-    let sets = sprites::list_sets(&root).await;
+    let sets = sprites::list_sets(&root, false).await;
     let set = arg("--tiles")
         .and_then(|n| sets.iter().position(|s| s.name.eq_ignore_ascii_case(&n)))
         .unwrap_or(0);
-    let schemes = palette::load(&root).await;
+    let schemes = palette::load(&root, false).await;
     let scheme = arg("--colours")
         .and_then(|n| schemes.iter().position(|s| s.name.eq_ignore_ascii_case(&n)))
         .unwrap_or(0);
-    let assets = sprites::Assets::load_set(&root, &sets[set]).await;
+    let assets = sprites::Assets::load_set(&root, &sets[set], false).await;
     let names = sets.iter().map(|s| s.name.clone()).collect();
     let mut game = game::Game::new(layout, assets, names, set, schemes, scheme);
     if args.iter().any(|a| a == "--sound-check") {
@@ -137,21 +137,28 @@ async fn main() {
         }
         if let Some(want) = game.asset_request {
             // Re-read sets.txt too, so newly added sets show up without a restart.
-            let sets = sprites::list_sets(&root).await;
+            let sets = sprites::list_sets(&root, false).await;
             let idx = want.min(sets.len() - 1);
-            let assets = sprites::Assets::load_set(&root, &sets[idx]).await;
+            let assets = sprites::Assets::load_set(&root, &sets[idx], false).await;
             game.set_assets(assets, idx, sets.iter().map(|s| s.name.clone()).collect());
         }
         if let Some((want, reload)) = game.preview_request.take() {
-            // Theme preview: load the tried tile set. Reload re-reads sets.txt
-            // and the palettes too, so edits show up without a restart.
-            let sets = sprites::list_sets(&root).await;
+            // Theme preview: load the tried tile set. Reload re-reads sets.txt,
+            // the palettes and the board's art too (tiles and faces), skipping
+            // the browser's cache, so edits show up without a restart.
+            let sets = sprites::list_sets(&root, reload).await;
             if reload {
-                game.set_schemes(palette::load(&root).await);
+                game.set_schemes(palette::load(&root, true).await);
             }
             let idx = want.min(sets.len() - 1);
-            let assets = sprites::Assets::load_set(&root, &sets[idx]).await;
-            game.set_preview(idx, assets, sets.iter().map(|s| s.name.clone()).collect(), reload);
+            let assets = sprites::Assets::load_set(&root, &sets[idx], reload).await;
+            let board = game.tile_set_index().min(sets.len() - 1);
+            let board_assets = if reload && board != idx {
+                Some(sprites::Assets::load_set(&root, &sets[board], true).await)
+            } else {
+                None
+            };
+            game.set_preview(idx, assets, sets.iter().map(|s| s.name.clone()).collect(), reload, board_assets);
         }
         game.render(&mut fb);
         fb.write_rgba(&mut image.bytes, game.palette());

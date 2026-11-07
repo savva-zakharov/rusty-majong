@@ -151,7 +151,7 @@ only if you accept.
 | --- | --- | --- |
 | `[E]XIT` | `E`, `N`, `Esc`, `Backspace` | close the dialog and keep the tile set, colours and scanlines you had |
 | `[A]CCEPT` | `A`, `Y`, `Enter`, `Space` | switch to the tile set, colours and scanlines shown |
-| `[R]ELOAD` | `R` | re-read `sets.txt`, the palettes and the shown set's PNGs from disk |
+| `[R]ELOAD` | `R` | re-read `sets.txt`, the palettes and the PNGs (`tile.png` and `faces.png`) of both the shown set and the board's set, and redraw the board with them straight away |
 | `[C]RT` (a row under the names) | `C` | turn CRT scanlines on or off |
 
 Each tile set is loaded the first time you step to it, which shows `...` in the box for a moment
@@ -213,7 +213,9 @@ Other colour schemes recolour the faces automatically (see below).
 - A file that's missing or the wrong size falls back to the built-in art. The message line says
   which happened.
 
-Use `[R]ELOAD` in the theme dialog (`T`, then `R`) to reload the PNGs while you edit them. To write the built-in art out as
+Use `[R]ELOAD` in the theme dialog (`T`, then `R`) to reload the PNGs while you edit them: the
+board is redrawn with the new tiles and faces at once, whether you then accept or exit. On the web,
+Reload asks the server for fresh copies, so the browser's cache can't hand back old versions. To write the built-in art out as
 placeholders (existing files are kept unless you add `--force`):
 
 ```

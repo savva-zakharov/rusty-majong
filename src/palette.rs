@@ -148,13 +148,15 @@ pub fn parse_list(list: &str) -> Vec<String> {
 /// Load the palettes listed in `root/palettes.txt` from `root/palettes/<name>.png`
 /// (file system on desktop, HTTP on the web). Unreadable or wrong-sized files
 /// are skipped with a message; if none load, the built-in PHOSPHOR is used.
-pub async fn load(root: &str) -> Vec<Scheme> {
+/// `fresh` skips the browser's cache (reloads on the web).
+pub async fn load(root: &str, fresh: bool) -> Vec<Scheme> {
+    use crate::sprites::fresh_path;
     let root = root.trim_end_matches('/');
-    let list = macroquad::file::load_string(&format!("{root}/palettes.txt")).await.unwrap_or_default();
+    let list = macroquad::file::load_string(&fresh_path(&format!("{root}/palettes.txt"), fresh)).await.unwrap_or_default();
     let mut schemes = vec![];
     for name in parse_list(&list) {
         let path = format!("{root}/palettes/{name}.png");
-        let Ok(bytes) = macroquad::file::load_file(&path).await else {
+        let Ok(bytes) = macroquad::file::load_file(&fresh_path(&path, fresh)).await else {
             eprintln!("rusty-majong: palette {path} not found");
             continue;
         };

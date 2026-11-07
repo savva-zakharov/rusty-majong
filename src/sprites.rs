@@ -192,13 +192,14 @@ impl Assets {
     /// Load a tile set with macroquad's file loader (the file system on desktop,
     /// an HTTP fetch relative to the page on the web). Each file comes from the
     /// set's folder, else from the root `assets/` folder, else the built-in art.
-    pub async fn load_set(root: &str, set: &TileSet) -> Assets {
+    /// Load a tile set's art. `fresh` skips the browser's cache (reloads on the web).
+    pub async fn load_set(root: &str, set: &TileSet, fresh: bool) -> Assets {
         let Some(dir) = &set.dir else {
             let mut a = Assets::builtin();
             a.status = "TILES: BUILT-IN.".into();
             return a;
         };
-        let fetch = |d: &str, name: &str| format!("{}/{name}", d.trim_end_matches('/'));
+        let fetch = |d: &str, name: &str| fresh_path(&format!("{}/{name}", d.trim_end_matches('/')), fresh);
         let mut files = vec![];
         for name in ["tile.png", "faces.png"] {
             let mut bytes = macroquad::file::load_file(&fetch(dir, name)).await.ok();
@@ -255,10 +256,22 @@ pub fn parse_set_list(root: &str, list: &str) -> Vec<TileSet> {
     sets
 }
 
-pub async fn list_sets(root: &str) -> Vec<TileSet> {
-    let path = format!("{}/sets.txt", root.trim_end_matches('/'));
+pub async fn list_sets(root: &str, fresh: bool) -> Vec<TileSet> {
+    let path = fresh_path(&format!("{}/sets.txt", root.trim_end_matches('/')), fresh);
     let list = macroquad::file::load_string(&path).await.unwrap_or_default();
     parse_set_list(root, &list)
+}
+
+/// `path`, or on the web with `fresh`, `path` plus a unique query string, so
+/// the browser fetches the file again instead of answering from its cache
+/// (used by Reload, so edited art shows up). Desktop reads files directly and
+/// always gets the current version.
+pub fn fresh_path(path: &str, fresh: bool) -> String {
+    if fresh && cfg!(target_arch = "wasm32") {
+        format!("{path}?reload={}", (macroquad::miniquad::date::now() * 1000.0) as u64)
+    } else {
+        path.to_string()
+    }
 }
 
 /// Decode PNG bytes to RGBA, checking the size.

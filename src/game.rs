@@ -33,7 +33,7 @@ const ENTER_DELAY: f32 = 0.15;
 /// Pause after a message has finished typing before the next queued one starts, in seconds.
 const MSG_GAP: f32 = 0.0;
 /// Most messages that can wait in the queue; beyond that the oldest waiting one is dropped.
-const MSG_QUEUE_MAX: usize = 4;
+const MSG_QUEUE_MAX: usize = 10;
 /// Deal animation: tiles placed per second (144 tiles take about 1.5 s).
 const DEAL_TPS: f32 = 96.0;
 /// Pause after the last tile lands before the symbols are shown, in seconds.
@@ -572,10 +572,17 @@ impl Game {
 
     /// Install a tile set loaded for the theme preview. After a reload this also
     /// replaces the list of set names and reports the result.
-    pub fn set_preview(&mut self, set: usize, assets: Assets, tile_sets: Vec<String>, reloaded: bool) {
+    /// On a reload the board's art is replaced too: with `assets` when the
+    /// tried set is the board's own, else with `board_assets`.
+    pub fn set_preview(&mut self, set: usize, assets: Assets, tile_sets: Vec<String>, reloaded: bool, board_assets: Option<Assets>) {
         if reloaded {
             let s = format!("RELOADED. {}", assets.status);
             self.say(&s);
+            if set == self.tile_set {
+                self.assets = assets.clone();
+            } else if let Some(b) = board_assets {
+                self.assets = b;
+            }
         }
         self.tile_sets = tile_sets;
         self.previews.retain(|(k, _)| *k != set);
@@ -583,6 +590,11 @@ impl Game {
         if let Some(t) = &mut self.theme {
             t.set = t.set.min(self.tile_sets.len().saturating_sub(1));
         }
+    }
+
+    /// Index of the board's tile set.
+    pub fn tile_set_index(&self) -> usize {
+        self.tile_set
     }
 
     /// The art to preview tile set `set` with, if it has loaded.
@@ -1923,7 +1935,7 @@ mod tests {
         g.run(Action::Theme);
         g.run(Action::SetNext);
         assert_eq!(g.preview_request, Some((1, false)));
-        g.set_preview(1, Assets::builtin(), g.tile_sets.clone(), false);
+        g.set_preview(1, Assets::builtin(), g.tile_sets.clone(), false, None);
         assert!(g.preview_assets(1).is_some());
         // Wrapping both ways, then accept installs the tried set and colours.
         g.run(Action::SchemePrev);
@@ -1964,6 +1976,31 @@ mod tests {
         g.click(None);
         assert_eq!(g.selected, None);
         assert!(!g.deselect(), "nothing left to deselect: no second escape sound");
+    }
+
+    #[test]
+    fn reload_refreshes_the_boards_art() {
+        let mut g = test_game();
+        g.tile_sets = vec!["DEFAULT".into(), "OTHER".into()];
+        g.set_deal_time(99.0);
+        let mut fresh = Assets::builtin();
+        fresh.status = "FRESH".into();
+        // Reloading while trying the board's own set: the board gets it too.
+        g.run(Action::Theme);
+        g.run(Action::ThemeReload);
+        assert_eq!(g.preview_request, Some((0, true)));
+        g.set_preview(0, fresh.clone(), g.tile_sets.clone(), true, None);
+        assert_eq!(g.assets.status, "FRESH");
+        // Trying another set: the board's own set comes back reloaded alongside.
+        let mut board = Assets::builtin();
+        board.status = "BOARD".into();
+        g.run(Action::SetNext);
+        g.run(Action::ThemeReload);
+        g.set_preview(1, fresh, g.tile_sets.clone(), true, Some(board));
+        assert_eq!(g.assets.status, "BOARD");
+        // Exit keeps the reloaded board art (it's a reload, not a theme change).
+        g.run(Action::ThemeExit);
+        assert_eq!((g.tile_set, g.assets.status.as_str()), (0, "BOARD"));
     }
 
     #[test]
