@@ -71,8 +71,11 @@ Some things to know:
 - The Linux binary needs ALSA, X11 and OpenGL, which desktop distributions have already.
 - The Android build uses macroquad's `notfl3/cargo-apk` Docker image and `cargo quad-apk`. Its
   settings (app name, package name, orientation) are under `[package.metadata.android]` in
-  `Cargo.toml`. The APK is signed with a debug key, so Android asks you to allow installing it
-  from an unknown source; it isn't suitable for the Play Store as it is.
+  `Cargo.toml`. Android asks you to allow installing it from an unknown source.
+- The APK is signed in the workflow. Set two repository secrets so every build is signed with
+  the same key and new versions install over old ones: `ANDROID_KEYSTORE` (a `.jks` keystore,
+  base64-encoded) and `ANDROID_KEYSTORE_PASSWORD`. Without them, each run signs with a throwaway
+  key: the APK installs, but moving to another build means uninstalling the old one first.
 - On Android the art and sounds are packed inside the APK, so they can't be edited without
   rebuilding.
 
