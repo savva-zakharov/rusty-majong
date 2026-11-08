@@ -116,7 +116,7 @@ mod js {
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn rusty_net_crate_version() -> u32 {
-    1
+    2
 }
 
 #[cfg(test)]

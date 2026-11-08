@@ -164,7 +164,8 @@ screen switches to the colours you're trying, so you can see them on the board t
 tile, the names of the set and the colours type out, with typing sounds, whenever they change,
 with each one's place in its list on the right. Below them, the `[C]RT` row turns the CRT
 scanlines on or off; like the colours, the screen shows the change straight away, and it's kept
-only if you accept.
+only if you accept. An accepted theme is saved, so the game starts with it next time (see
+[Saved settings](#saved-settings)).
 
 | Button | Keys | What it does |
 | --- | --- | --- |
@@ -200,7 +201,7 @@ up to eight letters, digits, `-`, `.` or `_`. Type it, or use `↑` / `↓` (the
 to change the letter under the cursor and `←` / `→` (`<` / `>`) to move. Enter or `[ENTER] SUBMIT`
 sends it, Esc or `[ESC] SKIP` doesn't. The leaderboard then shows where you placed. Each name
 keeps only its best time per board, so playing again only counts if you're faster. The name
-you used last is filled in again until you close the game. If the time can't be sent (`OFFLINE`), `[ENTER] RETRY`
+you used last is saved and filled in again next time, even after you close the game. If the time can't be sent (`OFFLINE`), `[ENTER] RETRY`
 tries again.
 
 The leaderboard lives on the website that hosts the web version: a Vercel function at
@@ -402,7 +403,31 @@ Some things to keep in mind:
   checks that `phosphor.png` and the built-in copy match.
 
 Start with a particular set and scheme with `--tiles NAME` and `--colours NAME` (desktop only, for
-example `cargo run -- --tiles wireframe --colours amber`). The choice isn't saved between runs.
+example `cargo run -- --tiles wireframe --colours amber`). These override the saved theme for that
+run.
+
+## Saved settings
+
+The game remembers your daily challenge nickname and your theme (tile set, colours and CRT
+scanlines) between sessions. They're saved whenever they change, as `key=value` lines:
+
+```
+name=SAVVA
+tiles=DEFAULT
+colours=PHOSPHOR
+crt=true
+```
+
+| Where | File |
+| --- | --- |
+| Windows | `%APPDATA%\rusty-majong\settings.txt` |
+| macOS | `~/Library/Application Support/rusty-majong/settings.txt` |
+| Linux | `$XDG_CONFIG_HOME/rusty-majong/settings.txt` (or `~/.config/...`) |
+| Android | the app's private storage (cleared with the app's data) |
+| Web | the browser's localStorage, per site (`rusty-majong-settings`) |
+
+Delete the file to go back to the defaults. A tile set or colour scheme that no longer exists
+falls back to the first one. Screenshots (`--shot`) neither read nor write the settings.
 
 ## How it's built
 

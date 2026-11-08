@@ -885,6 +885,21 @@ impl Game {
         self.tile_sets.get(self.tile_set).map(|s| s.as_str()).unwrap_or("?")
     }
 
+    /// The choices kept between sessions (the ones in use, not ones being
+    /// tried in the theme dialog).
+    pub fn settings(&self) -> crate::settings::Settings {
+        crate::settings::Settings {
+            name: self.nickname.clone(),
+            tiles: self.tile_set_name().to_string(),
+            colours: self.schemes[self.scheme].name.clone(),
+            crt: Some(self.crt),
+        }
+    }
+
+    pub fn set_crt(&mut self, on: bool) {
+        self.crt = on;
+    }
+
     /// Switch to layout `idx` (wrapping) and deal a fresh board on it.
     /// Deal a new board on layout `idx` from a random seed.
     pub fn set_layout(&mut self, idx: usize) {

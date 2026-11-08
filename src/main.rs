@@ -6,6 +6,7 @@ mod font;
 mod game;
 mod net;
 mod palette;
+mod settings;
 mod sprites;
 
 use game::{H, W};
@@ -63,20 +64,28 @@ async fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| game::Game::layout_index(n))
         .unwrap_or(0);
-    // `--tiles NAME` / `--colours NAME` pick the starting tile set / colour scheme.
+    // `--tiles NAME` / `--colours NAME` pick the starting tile set / colour
+    // scheme; otherwise the ones saved last time (screenshots ignore those).
     let arg = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
+    let saved = if shot.is_some() { settings::Settings::default() } else { settings::load() };
     let root = game::assets_dir();
     let sets = sprites::list_sets(&root, false).await;
     let set = arg("--tiles")
+        .or_else(|| Some(saved.tiles.clone()))
         .and_then(|n| sets.iter().position(|s| s.name.eq_ignore_ascii_case(&n)))
         .unwrap_or(0);
     let schemes = palette::load(&root, false).await;
     let scheme = arg("--colours")
+        .or_else(|| Some(saved.colours.clone()))
         .and_then(|n| schemes.iter().position(|s| s.name.eq_ignore_ascii_case(&n)))
         .unwrap_or(0);
     let assets = sprites::Assets::load_set(&root, &sets[set], false).await;
     let names = sets.iter().map(|s| s.name.clone()).collect();
     let mut game = game::Game::new(layout, assets, names, set, schemes, scheme);
+    game.nickname = saved.name.clone();
+    if let Some(crt) = saved.crt {
+        game.set_crt(crt);
+    }
     // `--seed N` deals the starting board from seed N (the number after # in
     // the board's name; dashes are ignored, so `--seed 2026-11-08` works), so
     // a board can be dealt again.
@@ -142,6 +151,8 @@ async fn main() {
         game.open_theme();
         game.finish_theme_typing();
     }
+    // Save the nickname and theme whenever they change (not for screenshots).
+    let mut kept = game.settings();
     let mut fb = fb::Fb::new(W, H);
     let mut image = Image::gen_image_color(W as u16, H as u16, BLACK);
     let tex = Texture2D::from_image(&image);
@@ -188,6 +199,13 @@ async fn main() {
                 None
             };
             game.set_preview(idx, assets, sets.iter().map(|s| s.name.clone()).collect(), reload, board_assets);
+        }
+        if shot.is_none() {
+            let now = game.settings();
+            if now != kept {
+                settings::save(&now);
+                kept = now;
+            }
         }
         game.render(&mut fb);
         fb.write_rgba(&mut image.bytes, game.palette());
