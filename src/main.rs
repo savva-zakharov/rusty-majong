@@ -21,7 +21,55 @@ fn conf() -> Conf {
         // In the browser, render at the device's real pixel density so phones get
         // crisp pixels instead of an upscaled blur.
         high_dpi: cfg!(target_arch = "wasm32"),
+        // Window and taskbar icon (Windows, macOS). Android and the web get
+        // theirs from android/res and the page's <link rel="icon">.
+        icon: app_icon(),
         ..Default::default()
+    }
+}
+
+/// assets/icon.png (built in), scaled to the window icon's three sizes.
+fn app_icon() -> Option<macroquad::miniquad::conf::Icon> {
+    let img = Image::from_file_with_format(include_bytes!("../assets/icon.png"), Some(ImageFormat::Png)).ok()?;
+    let (w, h) = (img.width as usize, img.height as usize);
+    let mut icon = macroquad::miniquad::conf::Icon { small: [0; 16 * 16 * 4], medium: [0; 32 * 32 * 4], big: [0; 64 * 64 * 4] };
+    scale_rgba(&img.bytes, w, h, &mut icon.small, 16);
+    scale_rgba(&img.bytes, w, h, &mut icon.medium, 32);
+    scale_rgba(&img.bytes, w, h, &mut icon.big, 64);
+    Some(icon)
+}
+
+/// Shrink (or stretch) a w x h RGBA image into a square `n` x `n` one,
+/// averaging the source pixels under each output pixel. Colours are weighted
+/// by alpha, so transparent pixels don't darken the edges.
+fn scale_rgba(src: &[u8], w: usize, h: usize, out: &mut [u8], n: usize) {
+    for oy in 0..n {
+        for ox in 0..n {
+            let (x0, x1) = (ox as f32 * w as f32 / n as f32, (ox + 1) as f32 * w as f32 / n as f32);
+            let (y0, y1) = (oy as f32 * h as f32 / n as f32, (oy + 1) as f32 * h as f32 / n as f32);
+            let mut acc = [0f32; 4];
+            let mut area = 0f32;
+            for sy in y0 as usize..(y1.ceil() as usize).min(h) {
+                let fy = (y1.min(sy as f32 + 1.0) - y0.max(sy as f32)).max(0.0);
+                for sx in x0 as usize..(x1.ceil() as usize).min(w) {
+                    let f = fy * (x1.min(sx as f32 + 1.0) - x0.max(sx as f32)).max(0.0);
+                    let p = &src[(sy * w + sx) * 4..][..4];
+                    let a = p[3] as f32 * f;
+                    for c in 0..3 {
+                        acc[c] += p[c] as f32 * a;
+                    }
+                    acc[3] += a;
+                    area += f;
+                }
+            }
+            let o = &mut out[(oy * n + ox) * 4..][..4];
+            if acc[3] > 0.0 {
+                for c in 0..3 {
+                    o[c] = (acc[c] / acc[3]).round() as u8;
+                }
+            }
+            o[3] = (acc[3] / area.max(1e-6)).round() as u8;
+        }
     }
 }
 
@@ -292,4 +340,26 @@ fn save_shot(fb: &fb::Fb, pal: &[palette::Rgb; palette::SLOTS], path: &str, k: i
         }
     }
     img.export_png(path);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_icon_scales_to_the_window_sizes() {
+        let icon = super::app_icon().expect("assets/icon.png decodes");
+        // Opaque in the middle, see-through in the corner.
+        assert_eq!(icon.big[(32 * 64 + 32) * 4 + 3], 255);
+        assert_eq!(icon.big[3], 0);
+        if let Ok(dir) = std::env::var("ICON_PREVIEW") {
+            for (n, px) in [(16, &icon.small[..]), (32, &icon.medium[..]), (64, &icon.big[..])] {
+                let mut img = macroquad::texture::Image::gen_image_color(n, n, macroquad::color::BLACK);
+                // export_png writes rows bottom-up.
+                for y in 0..n as usize {
+                    let row = &px[y * n as usize * 4..][..n as usize * 4];
+                    img.bytes[(n as usize - 1 - y) * n as usize * 4..][..n as usize * 4].copy_from_slice(row);
+                }
+                img.export_png(&format!("{dir}/icon{n}.png"));
+            }
+        }
+    }
 }

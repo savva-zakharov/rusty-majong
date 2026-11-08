@@ -432,6 +432,19 @@ muted=false
 Delete the file to go back to the defaults. A tile set or colour scheme that no longer exists
 falls back to the first one. Screenshots (`--shot`) neither read nor write the settings.
 
+## App icon
+
+`assets/icon.png` is the game's icon everywhere:
+
+- **Desktop:** it's built into the program and scaled to 16, 32 and 64 pixels for the window
+  and taskbar (Windows and macOS). Rebuild after changing it. The `.exe` file itself keeps
+  the default icon in Explorer.
+- **Android:** the launcher icons are `android/res/mipmap-*/ic_launcher.png`, one per screen
+  density. Make them again after changing the icon with `python android/icons.py` (needs
+  Pillow), then commit them.
+- **Web:** the page links to `assets/icon.png` as its favicon and home-screen icon, and
+  `web/build.sh` copies it. A site that embeds the game needs the same `<link>` lines.
+
 ## How it's built
 
 - Everything is drawn into a 560×315 palette-indexed framebuffer (93×39 text cells with a hand-made

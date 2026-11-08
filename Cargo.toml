@@ -22,6 +22,10 @@ ureq = "2"
 package_name = "io.github.savvazakharov.rusty-majong"
 label = "Rusty Majong"
 assets = "android/apk-assets"
+# Launcher icon: android/res/mipmap-*/ic_launcher.png, made from
+# assets/icon.png by android/icons.py.
+res = "android/res"
+icon = "@mipmap/ic_launcher"
 fullscreen = true
 # Compile and target a current Android, or new phones refuse to install it.
 android_version = 36

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the web version into dist/:
 #   dist/index.html, dist/gl.js, dist/audio.js, dist/net.js, dist/rusty-majong.wasm,
-#   dist/assets/{tile,faces}.png, dist/assets/sets.txt, dist/assets/sets/<name>/*.png,
+#   dist/assets/{tile,faces,icon}.png, dist/assets/sets.txt, dist/assets/sets/<name>/*.png,
 #   dist/assets/palettes.txt, dist/assets/palettes/*.png, dist/assets/sounds/*.wav
 # Only the game's PNGs, WAVs and the set list are copied (no .psd or other work files).
 # Serve dist/ with any static file server, e.g.:
@@ -15,7 +15,7 @@ rm -rf dist
 mkdir -p dist/assets
 cp web/index.html web/gl.js web/audio.js web/net.js dist/
 cp target/wasm32-unknown-unknown/release/rusty-majong.wasm dist/
-for f in tile.png faces.png sets.txt; do
+for f in tile.png faces.png icon.png sets.txt; do
     if [ -f "assets/$f" ]; then cp "assets/$f" dist/assets/; fi
 done
 # Colour schemes listed in palettes.txt (8x2 PNGs).
