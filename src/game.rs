@@ -2092,7 +2092,8 @@ impl Game {
     }
 
     fn render_hud(&self, fb: &mut Fb) {
-        let mut x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
+        let x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
+        let mut x = fb.text(x + 6, 4, &version(), UI_DK);
         let board = match &self.challenge {
             Some(c) => {
                 // Daily challenge: DAILY TURTLE 2026-11-08 (same length as the usual name).
@@ -2101,15 +2102,22 @@ impl Game {
             }
             None => self.board_name(),
         };
-        let name = format!("{} / {} / {}", board, self.tile_set_name(), self.schemes[self.scheme].name);
-        fb.text(x + 6, 4, &name, UI_DK);
         let stats = format!(
             "TILES {:3} | MOVES {:2} | TIME {}",
             self.remaining(),
             self.moves,
             fmt_time(self.elapsed)
         );
-        fb.text(W - 4 - Fb::text_w(&stats) + 1, 4, &stats, UI);
+        let stats_x = W - 4 - Fb::text_w(&stats) + 1;
+        // Board / tile set / colours, leaving off the colours, then the tile
+        // set, when the long names wouldn't fit before the stats.
+        let (set, scheme) = (self.tile_set_name(), &self.schemes[self.scheme].name);
+        let name = [format!("{board} / {set} / {scheme}"), format!("{board} / {set}"), board]
+            .into_iter()
+            .find(|n| x + 6 + Fb::text_w(n) + 8 <= stats_x)
+            .unwrap_or_default();
+        fb.text(x + 6, 4, &name, UI_DK);
+        fb.text(stats_x, 4, &stats, UI);
         dashed(fb, 13);
 
         // Prompt line with typewriter reveal and blinking block cursor.
@@ -2147,6 +2155,12 @@ pub fn assets_dir() -> String {
         .filter(|d| d.is_dir())
         .map(|d| d.to_string_lossy().into_owned())
         .unwrap_or_else(|| "assets".into())
+}
+
+/// The game's version for the HUD, from Cargo.toml: `V0.5` (`V0.5.1` for a patch).
+fn version() -> String {
+    let v = env!("CARGO_PKG_VERSION");
+    format!("V{}", v.strip_suffix(".0").unwrap_or(v))
 }
 
 fn fmt_time(t: f32) -> String {

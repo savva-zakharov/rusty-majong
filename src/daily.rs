@@ -6,7 +6,7 @@
 
 /// Where desktop and Android builds send times (`--leaderboard URL` changes
 /// it). The web build asks its own site, so it works wherever it's hosted.
-pub const DEFAULT_URL: &str = if cfg!(target_arch = "wasm32") { "/api/daily" } else { "https://REPLACE-WITH-SITE/api/daily" };
+pub const DEFAULT_URL: &str = if cfg!(target_arch = "wasm32") { "/api/daily" } else { "https://mindbird.site/api/daily" };
 
 /// Nickname characters, in the order the arcade-style ^ / ⌄ buttons cycle.
 pub const NAME_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._";

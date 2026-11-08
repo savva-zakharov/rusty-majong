@@ -183,7 +183,9 @@ async fn main() {
         game.nickname = n;
     }
     // `--daily-dialog` opens the daily dialog, `--daily-win SECONDS` shows
-    // the daily as just cleared at the nickname entry (for screenshots).
+    // the daily as just cleared at the nickname entry. Both are for
+    // screenshots; `--daily-win` works only with `--shot`, so a made-up time
+    // can't be sent to the leaderboard.
     if args.iter().any(|a| a == "--daily-dialog") {
         game.open_daily();
         game.finish_daily_typing();
@@ -192,7 +194,7 @@ async fn main() {
             game.settle_requests();
         }
     }
-    if let Some(s) = arg("--daily-win").and_then(|s| s.parse::<f32>().ok()) {
+    if let Some(s) = arg("--daily-win").and_then(|s| s.parse::<f32>().ok()).filter(|_| shot.is_some()) {
         game.demo_daily_win((s * 1000.0) as u32);
     }
     // `--new-dialog` opens the new-board dialog (for screenshots).

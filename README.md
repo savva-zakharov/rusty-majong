@@ -206,8 +206,9 @@ tries again.
 
 The leaderboard lives on the website that hosts the web version: a Vercel function at
 `/api/daily` in the pano-gallery project (`api/daily.js`), storing times in Upstash Redis. The
-web version asks its own site; desktop and Android builds send to `daily::DEFAULT_URL` (in
-`src/daily.rs`), or to `--leaderboard URL`. The server only takes today's and yesterday's
+web version asks its own site; desktop and Android builds send to
+`https://mindbird.site/api/daily` (`daily::DEFAULT_URL` in `src/daily.rs`), or to
+`--leaderboard URL`. The server only takes today's and yesterday's
 boards (for anyone finishing just after midnight UTC), rejects impossible times (under 20 s)
 and badly formed names, limits each address to 30 submissions an hour, and keeps the order the
 tiles were removed in alongside each best time, so suspicious runs can be checked later.
@@ -457,4 +458,5 @@ falls back to the first one. Screenshots (`--shot`) neither read nor write the s
   `board::deal`).
 
 Debug: `--shot out.png [--layout NAME] [--seed N] [--daily-dialog | --daily-win SECONDS] [--name NAME] [--leaderboard URL] [--demo | --demo-end] [--dim] [--new-dialog | --theme-dialog] [--deal-at SECONDS]` renders one frame to a PNG
-and exits; it shows the dealt board unless `--deal-at` freezes the deal animation that far in. `--sound-check` prints how many typing sounds were found and exits.
+and exits; it shows the dealt board unless `--deal-at` freezes the deal animation that far in.
+`--daily-win` does nothing without `--shot`, so it can't send a made-up time. `--sound-check` prints how many typing sounds were found and exits.
