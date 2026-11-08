@@ -147,12 +147,13 @@ pub mod tests {
         };
         let url = &test_url();
         let date = crate::game::today_date();
+        let b = crate::daily::parse(&wait(Request::get(&crate::daily::board_url(url, &date, "PYRAMID", "ROUNDTRP"))).unwrap()).unwrap();
+        assert_eq!(b.you, None);
+        // Every tile once, but not a run the board allows (genuine runs are
+        // sent by game::tests::daily_runs_are_checked_on_the_server).
         let pairs: Vec<usize> = (0..144).collect();
         let body = crate::daily::submit_body(&date, "PYRAMID", "ROUNDTRP", 99_900, &pairs);
-        let b = crate::daily::parse(&wait(Request::post(url, &body)).unwrap()).unwrap();
-        assert_eq!(b.you.map(|y| y.1), Some(99_900));
-        let b = crate::daily::parse(&wait(Request::get(&crate::daily::board_url(url, &date, "PYRAMID", "ROUNDTRP"))).unwrap()).unwrap();
-        assert!(b.top.iter().any(|e| e.name == "ROUNDTRP"));
+        assert_eq!(wait(Request::post(url, &body)), Err("BAD SOLUTION".into()));
         let bad = crate::daily::submit_body(&date, "PYRAMID", "bad name", 99_900, &pairs);
         assert_eq!(wait(Request::post(url, &bad)), Err("BAD NAME".into()));
         assert_eq!(wait(Request::get("http://localhost:1/api/daily")), Err("OFFLINE".into()));

@@ -2672,6 +2672,64 @@ RESULT NEW
         }
     }
 
+    /// The server replays runs on its own copy of the board (pano-gallery's
+    /// api/_board.js): genuine runs in any legal order go on the board,
+    /// tampered ones, blocked names and inhuman times don't. Against the
+    /// local test server, like daily_demo_win_submits.
+    #[test]
+    #[ignore]
+    fn daily_runs_are_checked_on_the_server() {
+        let url = crate::net::tests::test_url();
+        let date = today_date();
+        let send = |layout: &str, name: &str, ms: u32, pairs: &[usize]| {
+            let mut r = Request::post(&url, &daily::submit_body(&date, layout, name, ms, pairs));
+            loop {
+                if let Some(reply) = r.poll() {
+                    break reply;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        for (idx, l) in board::LAYOUTS.iter().enumerate() {
+            let mut g = test_game();
+            g.set_board(idx, Some(today_seed()));
+            let deal_order = g.solution();
+            assert!(send(l.name, "DEALT", 120_000, &deal_order).is_ok(), "{}: the deal's own order", l.name);
+            // A different legal order: any of the deal's pairs that is free
+            // now, at random. It never gets stuck: removing tiles only frees
+            // others, so the earliest pair left is always free.
+            let rng = macroquad::rand::RandGenerator::new();
+            rng.srand(idx as u64 + 7);
+            let mut left: Vec<(usize, usize)> = deal_order.chunks(2).map(|p| (p[0], p[1])).collect();
+            let mut alive = vec![true; g.pos.len()];
+            let mut run = vec![];
+            while !left.is_empty() {
+                let free: Vec<usize> = (0..left.len())
+                    .filter(|&k| board::is_free(&g.nb, &alive, left[k].0) && board::is_free(&g.nb, &alive, left[k].1))
+                    .collect();
+                let (a, b) = left.remove(free[rng.gen_range(0, free.len())]);
+                alive[a] = false;
+                alive[b] = false;
+                run.extend([b, a]);
+            }
+            assert_ne!(run, deal_order);
+            assert!(send(l.name, "RANDOM", 130_000, &run).is_ok(), "{}: another legal order", l.name);
+            // Swapping the first two pairs' second tiles breaks the matches.
+            let mut bad = deal_order.clone();
+            bad.swap(1, 3);
+            assert_eq!(send(l.name, "TAMPER", 120_000, &bad), Err("BAD SOLUTION".into()), "{}", l.name);
+            // Taking the last pair first: not free yet.
+            let mut early = deal_order.clone();
+            early.rotate_right(2);
+            assert_eq!(send(l.name, "EARLY", 120_000, &early), Err("BAD SOLUTION".into()), "{}", l.name);
+        }
+        let mut g = test_game();
+        g.set_board(0, Some(today_seed()));
+        let ok = g.solution();
+        assert_eq!(send("TURTLE", "SH1T", 120_000, &ok), Err("PICK ANOTHER NAME".into()));
+        assert_eq!(send("TURTLE", "QUICK", 30_000, &ok), Err("BAD TIME".into()));
+    }
+
     #[test]
     fn leaderboards_show_your_row_below_the_top_ten() {
         let mut text = String::from("DAILY X TURTLE

@@ -253,6 +253,18 @@ mod tests {
     use super::*;
     use crate::art::full_set_pairs;
 
+    /// The leaderboard server deals the daily boards itself to check runs
+    /// (pano-gallery's api/_board.js, a port of this file, art::full_set_pairs
+    /// and quad-rand). If this fails, the generator changed: update the port
+    /// too, or every genuine daily run is rejected.
+    #[test]
+    fn generator_matches_the_servers_port() {
+        let r = RandGenerator::new();
+        r.srand(20261108);
+        assert_eq!([r.rand(), r.rand(), r.rand()], [3503077191, 674178733, 4001893031]);
+        assert_eq!(r.gen_range(0u32, 37), 31);
+    }
+
     #[test]
     fn layouts_have_144_unique_supported_tiles() {
         for l in LAYOUTS {

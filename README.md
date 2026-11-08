@@ -208,10 +208,24 @@ The leaderboard lives on the website that hosts the web version: a Vercel functi
 `/api/daily` in the pano-gallery project (`api/daily.js`), storing times in Upstash Redis. The
 web version asks its own site; desktop and Android builds send to
 `https://mindbird.site/api/daily` (`daily::DEFAULT_URL` in `src/daily.rs`), or to
-`--leaderboard URL`. The server only takes today's and yesterday's
-boards (for anyone finishing just after midnight UTC), rejects impossible times (under 20 s)
-and badly formed names, limits each address to 30 submissions an hour, and keeps the order the
-tiles were removed in alongside each best time, so suspicious runs can be checked later.
+`--leaderboard URL`. The server:
+
+- only takes today's and yesterday's boards (for anyone finishing just after midnight UTC);
+- replays each run on its own copy of the board (`api/_board.js`, a port of the game's dealer)
+  and rejects it unless every pair was free and matching when it was taken;
+- rejects times under 45 s, badly formed names and names on a small blocklist
+  (`PICK ANOTHER NAME`);
+- limits each address to 30 submissions and 300 leaderboard reads an hour;
+- keeps the order the tiles were removed in alongside each best time.
+
+The time is still the game's own word, so a determined cheat can fake one. Remove an entry
+in the Upstash console with `ZREM daily:<date>:<layout> <NAME>`.
+
+`api/_board.js` must deal exactly as the game does. If the dealer, the layouts, the tile set
+or the random number generator change, update it too, or every genuine run is rejected. The
+test `board::tests::generator_matches_the_servers_port` fails if the generator changes, and
+`cargo test -- --ignored daily` against the local test server sends genuine and tampered runs
+on every layout.
 
 To try it locally without the real server, `node web/dev-server.js` serves the web build from
 `dist/` at http://localhost:8080 and runs the same `api/daily.js` with an in-memory store
