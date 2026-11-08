@@ -86,6 +86,12 @@ async fn main() {
     if let Some(crt) = saved.crt {
         game.set_crt(crt);
     }
+    if let Some(dim) = saved.dim {
+        game.set_dim(dim);
+    }
+    if let Some(muted) = saved.muted {
+        game.muted = muted;
+    }
     // `--seed N` deals the starting board from seed N (the number after # in
     // the board's name; dashes are ignored, so `--seed 2026-11-08` works), so
     // a board can be dealt again.

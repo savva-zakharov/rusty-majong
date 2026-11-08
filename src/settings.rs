@@ -1,5 +1,6 @@
-//! Choices kept between sessions: the daily nickname and the theme (tile set,
-//! colour scheme, CRT scanlines), saved as `key=value` lines.
+//! Choices kept between sessions: the daily nickname, the theme (tile set,
+//! colour scheme, CRT scanlines), dimmed blocked tiles and muted sound, saved
+//! as `key=value` lines.
 //!
 //! Desktop: `settings.txt` in the user's config folder (`%APPDATA%\rusty-majong`
 //! on Windows, `~/Library/Application Support/rusty-majong` on macOS,
@@ -14,6 +15,8 @@ pub struct Settings {
     pub tiles: String,
     pub colours: String,
     pub crt: Option<bool>,
+    pub dim: Option<bool>,
+    pub muted: Option<bool>,
 }
 
 impl Settings {
@@ -28,6 +31,8 @@ impl Settings {
                 "tiles" => s.tiles = v,
                 "colours" => s.colours = v,
                 "crt" => s.crt = v.parse().ok(),
+                "dim" => s.dim = v.parse().ok(),
+                "muted" => s.muted = v.parse().ok(),
                 _ => {}
             }
         }
@@ -36,8 +41,10 @@ impl Settings {
 
     pub fn text(&self) -> String {
         let mut t = format!("name={}\ntiles={}\ncolours={}\n", self.name, self.tiles, self.colours);
-        if let Some(crt) = self.crt {
-            t += &format!("crt={crt}\n");
+        for (key, v) in [("crt", self.crt), ("dim", self.dim), ("muted", self.muted)] {
+            if let Some(v) = v {
+                t += &format!("{key}={v}\n");
+            }
         }
         t
     }
@@ -124,7 +131,7 @@ mod tests {
 
     #[test]
     fn settings_survive_a_round_trip() {
-        let s = Settings { name: "SAVVA".into(), tiles: "DEFAULT".into(), colours: "AMBER".into(), crt: Some(false) };
+        let s = Settings { name: "SAVVA".into(), tiles: "DEFAULT".into(), colours: "AMBER".into(), crt: Some(false), dim: Some(true), muted: Some(false) };
         assert_eq!(Settings::parse(&s.text()), s);
         let old = Settings::parse("name=AB\nfuture=1\njunk\ncrt=maybe\n");
         assert_eq!(old, Settings { name: "AB".into(), ..Default::default() });

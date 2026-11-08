@@ -893,6 +893,8 @@ impl Game {
             tiles: self.tile_set_name().to_string(),
             colours: self.schemes[self.scheme].name.clone(),
             crt: Some(self.crt),
+            dim: Some(self.dim),
+            muted: Some(self.muted),
         }
     }
 

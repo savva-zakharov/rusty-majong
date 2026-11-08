@@ -408,14 +408,17 @@ run.
 
 ## Saved settings
 
-The game remembers your daily challenge nickname and your theme (tile set, colours and CRT
-scanlines) between sessions. They're saved whenever they change, as `key=value` lines:
+The game remembers your daily challenge nickname, your theme (tile set, colours and CRT
+scanlines), whether blocked tiles are dimmed (`F`) and whether the sound is muted (`M`) between
+sessions. They're saved whenever they change, as `key=value` lines:
 
 ```
 name=SAVVA
 tiles=DEFAULT
 colours=PHOSPHOR
 crt=true
+dim=false
+muted=false
 ```
 
 | Where | File |
