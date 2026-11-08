@@ -75,6 +75,11 @@ async fn main() {
     let assets = sprites::Assets::load_set(&root, &sets[set], false).await;
     let names = sets.iter().map(|s| s.name.clone()).collect();
     let mut game = game::Game::new(layout, assets, names, set, schemes, scheme);
+    // `--seed N` deals the starting board from seed N (the number after # in
+    // the board's name), so a board can be dealt again.
+    if let Some(seed) = arg("--seed").and_then(|s| s.trim_start_matches('#').parse::<u32>().ok()) {
+        game.set_board(layout, Some(seed));
+    }
     if args.iter().any(|a| a == "--sound-check") {
         let s = load_type_sounds(&root).await;
         println!(

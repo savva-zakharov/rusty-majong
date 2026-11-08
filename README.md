@@ -94,7 +94,14 @@ Click two free tiles that match to remove them. A tile is free when nothing is o
 its left or right side is open. Flowers match any flower, and seasons match any season.
 
 There are four 144-tile layouts. Pick one when you start a new board (see below), or start on one
-with `cargo run --release -- --layout castle`:
+with `cargo run --release -- --layout castle`.
+
+Every board has a seed, a number from `000000` to `999999`, shown after the layout's name in the
+top line (`TURTLE #004217`), in the `DEALT` message and on the win screen. The same layout and
+seed always deal the same board, on desktop, the web and Android alike, so a board can be played
+again or shared. New boards get a random seed unless you give one in the new-board dialog (see
+below), or start with one: `cargo run --release -- --layout castle --seed 4217`. Shuffles stay
+random; the seed sets the deal.
 
 | Layout | Shape |
 | --- | --- |
@@ -117,7 +124,7 @@ solved.
 | `H` | hint |
 | `U` / `Z` / `Backspace` | undo (also undoes shuffles) |
 | `S` | shuffle the remaining tiles into a solvable arrangement |
-| `N` | new board: opens the new-board dialog, where you pick the layout |
+| `N` | new board: opens the new-board dialog, where you pick the layout and seed |
 | `T` | theme: opens the theme dialog, where you pick the tile set and colours |
 | `F` | dither-dim blocked tiles |
 | `M` | mute / unmute all sounds (the `[M]UTE` button turns red while muted) |
@@ -132,11 +139,17 @@ the bar and reaches halfway to its neighbours, to make it easy to tap. The web v
 
 `[N]EW` asks first. The **NEW BOARD?** dialog shows the layout's name, with `<` and `>` either
 side to step through the layouts, and a small top-down map of it: one block per tile, coloured by
-height, with higher layers brighter (dark green, then green, amber, ivory and red). The name types out like the command line, with the same
+height, with higher layers brighter (UI dark, then UI, amber, blue and red). The name types out like the command line, with the same
 click and space sounds, each time the dialog opens or the layout changes. `[Y]ES` deals
 a new board on that layout; `[N]O` closes the dialog and keeps the current board. On a keyboard,
-`←` / `→` (or `A` / `D`) change the layout, `Y`, `Enter` or `Space` confirm, and `N`, `Esc` or
-`Backspace` cancel. While it's open, the board behind it ignores clicks.
+`←` / `→` (or `A` / `D`) change the layout, `Y`, `Enter` or `Space` confirm, and `N` or `Esc`
+cancel. While it's open, the board behind it ignores clicks.
+
+Below the map is the **SEED** row. It says `RANDOM` until you type digits (up to six, each with a
+click); `Backspace` deletes one, and on an empty seed closes the dialog. `[R]EPLAY` (the `R` key,
+or a tap anywhere on the row) fills in the current board's layout and seed, so `[Y]ES` deals the
+same board again from the start; pressing it again goes back to a random seed. On a touch screen
+with no keyboard, replay works but typing a seed doesn't.
 
 `[T]HEME` opens the **THEME** dialog. In the middle is one tile on a small patch of table, drawn
 in the tile set and colours you're trying. Arrows sit round it: `<` / `>` (or the `←` / `→` keys)
@@ -364,5 +377,5 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
 - Every board is dealt by playing the game backwards, so it can always be solved (see
   `board::deal`).
 
-Debug: `--shot out.png [--layout NAME] [--demo | --demo-end] [--dim] [--new-dialog | --theme-dialog] [--deal-at SECONDS]` renders one frame to a PNG
+Debug: `--shot out.png [--layout NAME] [--seed N] [--demo | --demo-end] [--dim] [--new-dialog | --theme-dialog] [--deal-at SECONDS]` renders one frame to a PNG
 and exits; it shows the dealt board unless `--deal-at` freezes the deal animation that far in. `--sound-check` prints how many typing sounds were found and exits.

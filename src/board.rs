@@ -1,7 +1,7 @@
 //! Layout, free-tile rules and a dealer that only produces solvable boards.
 
 use crate::art::Face;
-use macroquad::rand::gen_range;
+use macroquad::rand::RandGenerator;
 
 /// Position in half-tile units; a tile covers 2x2 cells. `z` is the layer.
 #[derive(Clone, Copy, Debug)]
@@ -190,21 +190,22 @@ pub fn is_free(nb: &[Nb], alive: &[bool], i: usize) -> bool {
         && (!n.left.iter().any(|&j| alive[j]) || !n.right.iter().any(|&j| alive[j]))
 }
 
-pub fn shuffle<T>(v: &mut [T]) {
+pub fn shuffle<T>(rng: &RandGenerator, v: &mut [T]) {
     for i in (1..v.len()).rev() {
-        let j = gen_range(0, i as u32 + 1) as usize;
+        let j = rng.gen_range(0, i as u32 + 1) as usize;
         v.swap(i, j);
     }
 }
 
 /// Fill `slots` with `pairs` by playing the game backwards: repeatedly pick two
 /// currently-free slots and give them a matching pair. Removing pairs in the
-/// order they were placed is then always a valid solution.
-pub fn deal(nb: &[Nb], slots: &[usize], pairs: &[(Face, Face)]) -> Option<Vec<(usize, Face)>> {
+/// order they were placed is then always a valid solution. All randomness
+/// comes from `rng`, so a generator seeded the same way deals the same board.
+pub fn deal(rng: &RandGenerator, nb: &[Nb], slots: &[usize], pairs: &[(Face, Face)]) -> Option<Vec<(usize, Face)>> {
     let n = nb.len();
     let mut pairs = pairs.to_vec();
     for _attempt in 0..2000 {
-        shuffle(&mut pairs);
+        shuffle(rng, &mut pairs);
         let mut alive = vec![false; n];
         for &s in slots {
             alive[s] = true;
@@ -218,9 +219,9 @@ pub fn deal(nb: &[Nb], slots: &[usize], pairs: &[(Face, Face)]) -> Option<Vec<(u
                 ok = false;
                 break;
             }
-            let i1 = pick_weighted(nb, &free);
+            let i1 = pick_weighted(rng, nb, &free);
             free.retain(|&x| x != i1);
-            let i2 = pick_weighted(nb, &free);
+            let i2 = pick_weighted(rng, nb, &free);
             alive[i1] = false;
             alive[i2] = false;
             out.push((i1, a));
@@ -234,10 +235,10 @@ pub fn deal(nb: &[Nb], slots: &[usize], pairs: &[(Face, Face)]) -> Option<Vec<(u
 }
 
 /// Prefer high tiles so tall stacks don't end up as an unpairable leftover.
-fn pick_weighted(nb: &[Nb], free: &[usize]) -> usize {
+fn pick_weighted(rng: &RandGenerator, nb: &[Nb], free: &[usize]) -> usize {
     let w = |i: usize| ((nb[i].z + 1) * (nb[i].z + 1)) as u32;
     let total: u32 = free.iter().map(|&i| w(i)).sum();
-    let mut r = gen_range(0, total);
+    let mut r = rng.gen_range(0, total);
     for &i in free {
         if r < w(i) {
             return i;
@@ -280,8 +281,9 @@ mod tests {
             let nb = neighbors(&p);
             let slots: Vec<usize> = (0..p.len()).collect();
             for seed in 0..30 {
-                macroquad::rand::srand(seed);
-                let d = deal(&nb, &slots, &full_set_pairs()).unwrap_or_else(|| panic!("{}: deal failed", l.name));
+                let rng = RandGenerator::new();
+                rng.srand(seed);
+                let d = deal(&rng, &nb, &slots, &full_set_pairs()).unwrap_or_else(|| panic!("{}: deal failed", l.name));
                 let mut alive = vec![true; p.len()];
                 for pair in d.chunks(2) {
                     let (a, b) = (pair[0], pair[1]);

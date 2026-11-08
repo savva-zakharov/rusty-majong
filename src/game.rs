@@ -7,7 +7,7 @@ use crate::fb::Fb;
 use crate::palette::{self, *};
 use macroquad::input::{is_key_pressed, is_mouse_button_pressed, KeyCode, MouseButton};
 use macroquad::audio::{play_sound, PlaySoundParams, Sound};
-use macroquad::rand::gen_range;
+use macroquad::rand::{gen_range, RandGenerator};
 use std::collections::VecDeque;
 
 pub const W: i32 = 560;
@@ -165,6 +165,12 @@ enum Action {
     /// New-board dialog: previous / next layout.
     LayoutPrev,
     LayoutNext,
+    /// New-board dialog: type a digit of the seed / delete one (or close the
+    /// dialog when the seed is empty) / fill in the current board's seed and
+    /// layout (or go back to a random seed if it is already filled in).
+    SeedDigit(u8),
+    SeedBack,
+    SeedReplay,
     /// Open the theme dialog (tile set and colour scheme).
     Theme,
     /// Theme dialog: previous / next tile set, previous / next colour scheme.
@@ -242,6 +248,8 @@ struct Dialog {
     picker: Option<usize>,
     /// Characters of the layout name typed out so far.
     picker_shown: usize,
+    /// The seed typed in the new-board dialog (digits; empty = random).
+    seed: String,
     /// Theme chooser: a tile preview with arrows round it, and the names.
     theme: Option<ThemeView>,
 }
@@ -289,6 +297,9 @@ const PREVIEW_H: i32 = 74;
 const PREVIEW_W: i32 = DIALOG_W - 24;
 /// Distance of the picker's `<` / `>` arrows from the dialog's centre.
 const ARROW_DX: i32 = 64;
+/// Seeds run from 0 to SEED_MAX - 1 and show as SEED_DIGITS digits.
+const SEED_MAX: u32 = 1_000_000;
+const SEED_DIGITS: usize = 6;
 
 impl Dialog {
     /// The dialog box: x, y, w, h. Rows: title, lines, a blank, the buttons.
@@ -300,7 +311,7 @@ impl Dialog {
     /// Height of the text lines plus the picker, if any.
     fn content_h(&self) -> i32 {
         self.lines.len() as i32 * 10
-            + if self.picker.is_some() { 14 + PREVIEW_H + 4 } else { 0 }
+            + if self.picker.is_some() { 14 + PREVIEW_H + 4 + 12 } else { 0 }
             + if self.theme.is_some() { THEME_H } else { 0 }
     }
 
@@ -322,6 +333,11 @@ impl Dialog {
     /// y of the picker's `< NAME >` row.
     fn picker_y(&self) -> i32 {
         self.rect().1 + 22 + self.lines.len() as i32 * 10
+    }
+
+    /// y of the new-board dialog's SEED row (below the miniature).
+    fn seed_y(&self) -> i32 {
+        self.picker_y() + 14 + PREVIEW_H + 6
     }
 
     fn button_row_y(&self) -> i32 {
@@ -347,6 +363,11 @@ impl Dialog {
             let (lx, rx) = (W / 2 - ARROW_DX, W / 2 + ARROW_DX);
             out.push(Button { label: "<", action: Action::LayoutPrev, text_x: lx - 2, text_y: py, hit: (dx + 4, py - 4, lx + 10 - (dx + 4), 15) });
             out.push(Button { label: ">", action: Action::LayoutNext, text_x: rx - 2, text_y: py, hit: (rx - 8, py - 4, dx + dw - 4 - (rx - 8), 15) });
+            // The SEED row: its whole width is the replay button (for touch).
+            let sy = self.seed_y();
+            let label = "[R]EPLAY";
+            let lx = dx + dw - 10 - (Fb::text_w(label) - 1);
+            out.push(Button { label, action: Action::SeedReplay, text_x: lx, text_y: sy, hit: (dx + 4, sy - 3, dw - 8, 12) });
         }
         if self.theme.is_some() {
             // Arrows round the preview: left / right change the tile set,
@@ -452,6 +473,11 @@ pub struct Game {
     picker: Option<usize>,
     /// Types out the layout name in the new-board dialog.
     picker_typer: Typer,
+    /// Seed digits typed in the new-board dialog (empty = a random seed).
+    seed_entry: String,
+    /// Seed the current board was dealt from: the same layout and seed always
+    /// deal the same board.
+    seed: u32,
     tile_sets: Vec<String>,
     tile_set: usize,
     /// Colour schemes loaded from assets/palettes/ (at least one).
@@ -519,6 +545,8 @@ impl Game {
             dialog_hover: None,
             picker: None,
             picker_typer: Typer::default(),
+            seed_entry: String::new(),
+            seed: 0,
             tile_sets,
             tile_set,
             scheme: scheme % schemes.len(),
@@ -686,7 +714,13 @@ impl Game {
     }
 
     /// Switch to layout `idx` (wrapping) and deal a fresh board on it.
+    /// Deal a new board on layout `idx` from a random seed.
     pub fn set_layout(&mut self, idx: usize) {
+        self.set_board(idx, None);
+    }
+
+    /// Deal a new board on layout `idx` from `seed` (None: a random one).
+    pub fn set_board(&mut self, idx: usize, seed: Option<u32>) {
         self.layout = idx % board::LAYOUTS.len();
         let pos = (board::LAYOUTS[self.layout].build)();
         self.nb = board::neighbors(&pos);
@@ -717,7 +751,7 @@ impl Game {
         self.faces = vec![Face::Dots(1); pos.len()];
         self.pos = pos;
         self.hover = None;
-        self.new_game();
+        self.new_game(seed);
     }
 
     /// Index of a layout by (case-insensitive) name.
@@ -730,7 +764,8 @@ impl Game {
         if self.picker.is_none() {
             self.picker = Some(self.layout);
             self.picker_typer.restart();
-            self.say("NEW BOARD? PICK A LAYOUT WITH < >, THEN [Y]ES OR [N]O.");
+            self.seed_entry.clear();
+            self.say("NEW BOARD? PICK A LAYOUT WITH < >, TYPE A SEED OR [R]EPLAY, THEN [Y]ES.");
         }
     }
 
@@ -786,11 +821,18 @@ impl Game {
         self.picker_typer.typed = usize::MAX / 2;
     }
 
-    fn new_game(&mut self) {
+    /// Deal the board from `seed` (None: a random one).
+    fn new_game(&mut self, seed: Option<u32>) {
         let n = self.pos.len();
         let slots: Vec<usize> = (0..n).collect();
+        // The deal has its own generator seeded with the board's seed, so the
+        // same layout and seed always give the same board, on every platform
+        // (the generator is plain integer and f64 maths).
+        self.seed = seed.unwrap_or_else(|| gen_range(0, SEED_MAX)) % SEED_MAX;
+        let rng = RandGenerator::new();
+        rng.srand(self.seed as u64);
         let dealt = loop {
-            if let Some(d) = board::deal(&self.nb, &slots, &art::full_set_pairs()) {
+            if let Some(d) = board::deal(&rng, &self.nb, &slots, &art::full_set_pairs()) {
                 break d;
             }
         };
@@ -809,8 +851,13 @@ impl Game {
         self.deal_placed = 0;
         self.state = State::Playing;
         self.refresh_moves();
-        let s = format!("{} DEALT. {}", board::LAYOUTS[self.layout].name, self.assets.status);
+        let s = format!("{} DEALT. {}", self.board_name(), self.assets.status);
         self.say(&s);
+    }
+
+    /// The current board's name: layout and seed, e.g. `TURTLE #004217`.
+    fn board_name(&self) -> String {
+        format!("{} #{:0w$}", board::LAYOUTS[self.layout].name, self.seed, w = SEED_DIGITS)
     }
 
     /// Queue a message for the command line.
@@ -1012,7 +1059,19 @@ impl Game {
                 (&[KeyCode::Left, KeyCode::A], Action::LayoutPrev),
                 (&[KeyCode::Right, KeyCode::D], Action::LayoutNext),
                 (&[KeyCode::Y, KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space], Action::NewYes),
-                (&[KeyCode::N, KeyCode::Escape, KeyCode::Backspace], Action::NewNo),
+                (&[KeyCode::N, KeyCode::Escape], Action::NewNo),
+                (&[KeyCode::Backspace], Action::SeedBack),
+                (&[KeyCode::R], Action::SeedReplay),
+                (&[KeyCode::Key0, KeyCode::Kp0], Action::SeedDigit(0)),
+                (&[KeyCode::Key1, KeyCode::Kp1], Action::SeedDigit(1)),
+                (&[KeyCode::Key2, KeyCode::Kp2], Action::SeedDigit(2)),
+                (&[KeyCode::Key3, KeyCode::Kp3], Action::SeedDigit(3)),
+                (&[KeyCode::Key4, KeyCode::Kp4], Action::SeedDigit(4)),
+                (&[KeyCode::Key5, KeyCode::Kp5], Action::SeedDigit(5)),
+                (&[KeyCode::Key6, KeyCode::Kp6], Action::SeedDigit(6)),
+                (&[KeyCode::Key7, KeyCode::Kp7], Action::SeedDigit(7)),
+                (&[KeyCode::Key8, KeyCode::Kp8], Action::SeedDigit(8)),
+                (&[KeyCode::Key9, KeyCode::Kp9], Action::SeedDigit(9)),
                 (&[KeyCode::M], Action::Mute),
             ]
         } else if self.theme.is_some() {
@@ -1104,6 +1163,7 @@ impl Game {
                 buttons: vec![("[Y]ES", Action::NewYes), ("[N]O", Action::NewNo)],
                 picker: Some(idx),
                 picker_shown: self.picker_typer.typed,
+                seed: self.seed_entry.clone(),
                 theme: None,
             });
         }
@@ -1114,6 +1174,7 @@ impl Game {
                 buttons: vec![("[E]XIT", Action::ThemeExit), ("[A]CCEPT", Action::ThemeAccept), ("[R]ELOAD", Action::ThemeReload)],
                 picker: None,
                 picker_shown: 0,
+                seed: String::new(),
                 theme: Some(ThemeView {
                     set_name: self.tile_sets.get(t.set).cloned().unwrap_or_default(),
                     set_shown: t.set_typer.typed,
@@ -1133,10 +1194,11 @@ impl Game {
                 }
                 Some(Dialog {
                     title: "** ALL TILES CLEARED **",
-                    lines: vec![format!("TIME {}", fmt_time(self.elapsed))],
+                    lines: vec![self.board_name(), format!("TIME {}", fmt_time(self.elapsed))],
                     buttons,
                     picker: None,
                     picker_shown: 0,
+                    seed: String::new(),
                     theme: None,
                 })
             }
@@ -1146,6 +1208,7 @@ impl Game {
                 buttons: vec![("[S]HUFFLE", Action::Shuffle), ("[U]NDO", Action::Undo), ("[N]EW", Action::New)],
                 picker: None,
                 picker_shown: 0,
+                seed: String::new(),
                 theme: None,
             }),
             State::Playing => None,
@@ -1172,12 +1235,45 @@ impl Game {
             Action::New => self.open_picker(),
             Action::NewYes => {
                 if let Some(idx) = self.picker.take() {
-                    self.set_layout(idx);
+                    let seed = self.seed_entry.parse::<u32>().ok();
+                    self.seed_entry.clear();
+                    self.set_board(idx, seed);
                 }
             }
             Action::NewNo => {
                 if self.picker.take().is_some() {
+                    self.seed_entry.clear();
                     self.say("KEPT THE CURRENT BOARD.");
+                }
+            }
+            Action::SeedDigit(d) => {
+                if self.picker.is_some() && self.seed_entry.len() < SEED_DIGITS {
+                    self.seed_entry.push(char::from(b'0' + d));
+                    self.play_typing(Some(TypeSound::Click));
+                }
+            }
+            Action::SeedBack => {
+                if self.picker.is_some() {
+                    if self.seed_entry.pop().is_some() {
+                        self.play_typing(Some(TypeSound::Click));
+                    } else {
+                        return self.run(Action::NewNo);
+                    }
+                }
+            }
+            Action::SeedReplay => {
+                if let Some(idx) = self.picker {
+                    let current = format!("{:0w$}", self.seed, w = SEED_DIGITS);
+                    if idx == self.layout && self.seed_entry == current {
+                        self.seed_entry.clear(); // back to a random seed
+                    } else {
+                        if idx != self.layout {
+                            self.picker = Some(self.layout);
+                            self.picker_typer.restart();
+                        }
+                        self.seed_entry = current;
+                    }
+                    self.play_typing(Some(TypeSound::Click));
                 }
             }
             Action::LayoutPrev | Action::LayoutNext => {
@@ -1346,7 +1442,9 @@ impl Game {
         let mut faces: Vec<Face> = slots.iter().map(|&i| self.faces[i]).collect();
         faces.sort_by_key(|f| f.key());
         let pairs: Vec<(Face, Face)> = faces.chunks(2).map(|c| (c[0], c[1])).collect();
-        match board::deal(&self.nb, &slots, &pairs) {
+        let rng = RandGenerator::new();
+        rng.srand(gen_range(0, u32::MAX) as u64);
+        match board::deal(&rng, &self.nb, &slots, &pairs) {
             Some(d) => {
                 self.history.push(Undo::Shuffle(self.faces.clone()));
                 for (i, f) in d {
@@ -1487,7 +1585,7 @@ impl Game {
         let x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
         let name = format!(
             "V0.4 {} / {} / {}",
-            board::LAYOUTS[self.layout].name,
+            self.board_name(),
             self.tile_set_name(),
             self.schemes[self.scheme].name
         );
@@ -1571,6 +1669,15 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         let count = format!("{}/{}", idx + 1, board::LAYOUTS.len());
         fb.text(x + w - 8 - Fb::text_w(&count) + 1, y + 8, &count, UI_DK);
         draw_layout_preview(fb, idx, W / 2, py + 14 + PREVIEW_H / 2);
+        // SEED row: the typed digits with blanks still to fill, or RANDOM.
+        let sy = d.seed_y();
+        let vx = fb.text(x + 10, sy, "SEED", UI_DK) + 6;
+        if d.seed.is_empty() {
+            fb.text(vx, sy, "RANDOM", UI_DK);
+        } else {
+            let end = fb.text(vx, sy, &d.seed, AMBER);
+            fb.text(end, sy, &"_".repeat(SEED_DIGITS - d.seed.len()), UI_DK);
+        }
     }
     if let Some(t) = &d.theme {
         let ny = d.theme_rows_y();
@@ -1591,7 +1698,7 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         fb.text(nx, ny + 20, if t.crt { "ON" } else { "OFF" }, AMBER);
     }
     for (k, b) in d.layout_buttons().iter().enumerate() {
-        let normal = if b.action == Action::Crt { UI_DK } else { UI };
+        let normal = if matches!(b.action, Action::Crt | Action::SeedReplay) { UI_DK } else { UI };
         draw_button(fb, b.label, b.text_x, b.text_y, normal, hover == Some(k), false);
     }
 }
@@ -1803,6 +1910,56 @@ mod tests {
     }
 
     #[test]
+    fn a_seed_deals_the_same_board_again() {
+        let mut g = test_game();
+        g.set_board(2, Some(4217));
+        let first = g.faces.clone();
+        assert_eq!(g.board_name(), format!("{} #004217", board::LAYOUTS[2].name));
+        g.set_layout(2);
+        assert_ne!(g.faces, first, "a random seed deals a different board");
+        g.set_board(2, Some(4217));
+        assert_eq!(g.faces, first);
+        // Seeds wrap into range.
+        g.set_board(2, Some(SEED_MAX + 4217));
+        assert_eq!((g.seed, &g.faces), (4217, &first));
+    }
+
+    #[test]
+    fn new_board_dialog_takes_a_typed_or_replayed_seed() {
+        let mut g = test_game();
+        g.set_board(1, Some(77));
+        let board = g.faces.clone();
+        // Typing: at most six digits; backspace deletes one.
+        g.run(Action::New);
+        for d in [1, 2, 3, 4, 5, 6, 7] {
+            g.run(Action::SeedDigit(d));
+        }
+        assert_eq!(g.seed_entry, "123456");
+        g.run(Action::SeedBack);
+        assert_eq!(g.dialog().unwrap().seed, "12345");
+        g.run(Action::NewYes);
+        assert_eq!((g.layout, g.seed, g.seed_entry.as_str()), (1, 12345, ""));
+        // Replay fills in the board's layout and seed, so YES deals it again.
+        g.run(Action::New);
+        g.run(Action::LayoutNext);
+        g.run(Action::SeedReplay);
+        assert_eq!((g.picker, g.seed_entry.as_str()), (Some(1), "012345"));
+        // Pressing it again goes back to a random seed.
+        g.run(Action::SeedReplay);
+        assert_eq!(g.seed_entry, "");
+        // Backspace on an empty seed closes the dialog, keeping the board.
+        g.run(Action::SeedBack);
+        assert_eq!((g.picker, g.seed), (None, 12345));
+        // Replaying an earlier board by typing its seed.
+        g.run(Action::New);
+        for d in [7, 7] {
+            g.run(Action::SeedDigit(d));
+        }
+        g.run(Action::NewYes);
+        assert_eq!(g.faces, board);
+    }
+
+    #[test]
     fn new_board_dialog_picks_a_layout_or_keeps_the_board() {
         let mut g = test_game();
         let faces = g.faces.clone();
@@ -1827,7 +1984,7 @@ mod tests {
         let d = g.dialog().unwrap();
         let (x, y, w, h) = d.rect();
         let bs = d.layout_buttons();
-        assert_eq!(bs.len(), 4);
+        assert_eq!(bs.len(), 5);
         for (k, b) in bs.iter().enumerate() {
             let (bx, by, bw, bh) = b.hit;
             assert!(bx >= x && by >= y && bx + bw <= x + w && by + bh <= y + h, "{} sticks out", b.label);
@@ -1886,7 +2043,7 @@ mod tests {
         g.show_hint();
         assert!(g.hint.is_some());
         // A new board deals again from the start.
-        g.new_game();
+        g.new_game(None);
         assert!(g.dealing() && g.dealt_count() == 0);
     }
 
