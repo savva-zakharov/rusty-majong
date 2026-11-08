@@ -9,6 +9,8 @@
 // Redis commands the handler uses through a fake REST endpoint, so nothing
 // leaves this machine and every restart starts empty.
 //
+// It listens on the local network too, so phones on the same Wi-Fi can open
+// http://<this computer's IP>:8080/ and play the web build against it.
 // Desktop builds can use it too:
 //   cargo run -- --leaderboard http://localhost:8080/api/daily
 
@@ -108,5 +110,10 @@ http.createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     fs.createReadStream(file).pipe(res);
 }).listen(port, () => {
-    console.log(`daily challenge test server: http://localhost:${port}/  (API ${api})`);
+    // Listens on every network interface, so phones on the same network can play too.
+    const lan = Object.values(require("os").networkInterfaces()).flat()
+        .filter((i) => i.family === "IPv4" && !i.internal)
+        .map((i) => `http://${i.address}:${port}/`);
+    console.log(`daily challenge test server (API ${api}):`);
+    for (const u of [`http://localhost:${port}/`, ...lan]) console.log(`  ${u}`);
 });
