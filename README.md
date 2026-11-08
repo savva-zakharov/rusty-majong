@@ -128,6 +128,7 @@ solved.
 | `U` / `Z` / `Backspace` | undo (also undoes shuffles) |
 | `S` | shuffle the remaining tiles into a solvable arrangement |
 | `N` | new board: opens the new-board dialog, where you pick the layout and seed |
+| `D` | daily challenge: opens the daily dialog with today's leaderboards |
 | `T` | theme: opens the theme dialog, where you pick the tile set and colours |
 | `F` | dither-dim blocked tiles |
 | `M` | mute / unmute all sounds (the `[M]UTE` button turns red while muted) |
@@ -182,6 +183,38 @@ While either dialog is open, the board ignores clicks, and the bar's game button
 The other pop-ups work the same way: `[N] NEW BOARD` when you clear the board (it opens the dialog above), and `[S]HUFFLE`,
 `[U]NDO` and `[N]EW` when no moves are left. Click or tap a button to use it. Clicks elsewhere
 inside a pop-up are ignored, so they can't hit the tiles underneath.
+
+### Daily challenge
+
+`[D]AILY` opens the **DAILY CHALLENGE** dialog. Every layout has its own board each day, dealt
+from the date (UTC) as its seed, so everyone playing `TURTLE` on 2026-11-08 gets the same tiles.
+`<` / `>` pick the layout and show its leaderboard: the top ten times, your own rank under them
+if you're further down, and how many have played. `[P]LAY` deals that board.
+
+In the challenge the top line reads `DAILY TURTLE 2026-11-08`, and there are no hints or
+shuffles (`[H]INT` and `[S]HUFFLE` are dimmed). Undo works as usual: every deal can be solved,
+so undoing is always a way out of a dead end. A new board from `[N]EW` leaves the challenge.
+
+Clearing the daily shows your time to a tenth of a second and asks for a nickname, arcade style:
+up to eight letters, digits, `-`, `.` or `_`. Type it, or use `↑` / `↓` (the `^` / `⌄` buttons)
+to change the letter under the cursor and `←` / `→` (`<` / `>`) to move. Enter or `[ENTER] SUBMIT`
+sends it, Esc or `[ESC] SKIP` doesn't. The leaderboard then shows where you placed. Each name
+keeps only its best time per board, so playing again only counts if you're faster. The name
+you used last is filled in again until you close the game. If the time can't be sent (`OFFLINE`), `[ENTER] RETRY`
+tries again.
+
+The leaderboard lives on the website that hosts the web version: a Vercel function at
+`/api/daily` in the pano-gallery project (`api/daily.js`), storing times in Upstash Redis. The
+web version asks its own site; desktop and Android builds send to `daily::DEFAULT_URL` (in
+`src/daily.rs`), or to `--leaderboard URL`. The server only takes today's and yesterday's
+boards (for anyone finishing just after midnight UTC), rejects impossible times (under 20 s)
+and badly formed names, limits each address to 30 submissions an hour, and keeps the order the
+tiles were removed in alongside each best time, so suspicious runs can be checked later.
+
+To try it locally without the real server, `node web/dev-server.js` serves the web build from
+`dist/` at http://localhost:8080 and runs the same `api/daily.js` with an in-memory store
+instead of Redis. Point a desktop build at it with
+`cargo run -- --leaderboard http://localhost:8080/api/daily`.
 
 ## Custom tile art
 
@@ -382,5 +415,5 @@ example `cargo run -- --tiles wireframe --colours amber`). The choice isn't save
 - Every board is dealt by playing the game backwards, so it can always be solved (see
   `board::deal`).
 
-Debug: `--shot out.png [--layout NAME] [--seed N] [--demo | --demo-end] [--dim] [--new-dialog | --theme-dialog] [--deal-at SECONDS]` renders one frame to a PNG
+Debug: `--shot out.png [--layout NAME] [--seed N] [--daily-dialog | --daily-win SECONDS] [--name NAME] [--leaderboard URL] [--demo | --demo-end] [--dim] [--new-dialog | --theme-dialog] [--deal-at SECONDS]` renders one frame to a PNG
 and exits; it shows the dealt board unless `--deal-at` freezes the deal animation that far in. `--sound-check` prints how many typing sounds were found and exits.

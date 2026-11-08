@@ -6,6 +6,11 @@ edition = "2021"
 [dependencies]
 macroquad = { version = "0.4", features = ["audio"] }
 
+# HTTP for the daily challenge leaderboard on desktop and Android (the web
+# build uses the browser's fetch through web/net.js instead).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = "2"
+
 # Android APK (built by `cargo quad-apk`, see .github/workflows/release.yml).
 # The APK's asset folder is `android/apk-assets/`, which the workflow fills
 # with a copy of `assets/` inside an `assets/` folder, so the game finds its
@@ -27,6 +32,10 @@ version_code = 1
 version_name = "0.0.0"
 # x86_64 is for emulators and Chromebooks.
 build_targets = ["armv7-linux-androideabi", "aarch64-linux-android", "x86_64-linux-android"]
+
+# The daily challenge leaderboard is online.
+[[package.metadata.android.permission]]
+name = "android.permission.INTERNET"
 
 [package.metadata.android.activity_attributes]
 "android:screenOrientation" = "userLandscape"

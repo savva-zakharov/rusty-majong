@@ -8,6 +8,8 @@ use crate::palette::{self, *};
 use macroquad::input::{is_key_pressed, is_mouse_button_pressed, KeyCode, MouseButton};
 use macroquad::audio::{play_sound, PlaySoundParams, Sound};
 use macroquad::rand::{gen_range, RandGenerator};
+use crate::daily::{self, NameEdit};
+use crate::net::{Reply, Request};
 use std::collections::VecDeque;
 
 pub const W: i32 = 560;
@@ -174,6 +176,20 @@ enum Action {
     /// New-board dialog: fill in today's date as the seed (the daily board),
     /// or go back to a random seed if it is already filled in.
     SeedToday,
+    /// Open the daily challenge dialog (today's boards and their leaderboards).
+    Daily,
+    /// Daily dialog: play the chosen layout's daily board / close the dialog.
+    DailyPlay,
+    DailyExit,
+    /// Nickname entry after clearing the daily: change the character under
+    /// the cursor, move the cursor, delete, send the time, or don't.
+    NameUp,
+    NameDown,
+    NameLeft,
+    NameRight,
+    NameBack,
+    NameSubmit,
+    NameSkip,
     /// Open the theme dialog (tile set and colour scheme).
     Theme,
     /// Theme dialog: previous / next tile set, previous / next colour scheme.
@@ -199,6 +215,7 @@ fn buttons() -> Vec<(&'static str, Action)> {
         ("[U]NDO", Action::Undo),
         ("[S]HUFFLE", Action::Shuffle),
         ("[N]EW", Action::New),
+        ("[D]AILY", Action::Daily),
         ("[T]HEME", Action::Theme),
         ("[F] DIM", Action::Dim),
         ("[M]UTE", Action::Mute),
@@ -242,20 +259,58 @@ fn layout_buttons() -> Vec<Button> {
 }
 
 /// A pop-up dialog: a title, some text lines, and a row of clickable buttons.
+#[derive(Default)]
 struct Dialog {
     title: &'static str,
     lines: Vec<String>,
     buttons: Vec<(&'static str, Action)>,
-    /// Layout picker (index of the layout shown): a `< NAME >` row and a
-    /// miniature of the layout, between the text lines and the buttons.
+    /// Layout picker (index of the layout shown): a `< NAME >` row, then
+    /// (with `picker_map`) a miniature of the layout and the SEED row.
     picker: Option<usize>,
+    picker_map: bool,
     /// Characters of the layout name typed out so far.
     picker_shown: usize,
     /// The seed typed in the new-board dialog (digits; empty = random).
     seed: String,
     /// Theme chooser: a tile preview with arrows round it, and the names.
     theme: Option<ThemeView>,
+    /// A leaderboard, below the picker.
+    scores: Option<ScoresView>,
+    /// Nickname entry, below the text lines.
+    name: Option<NameView>,
 }
+
+/// A leaderboard as the dialogs show it: up to SCORE_ROWS rows, or a message
+/// (loading, offline, empty) in their place, and a line below.
+struct ScoresView {
+    rows: Vec<ScoreRow>,
+    message: Option<String>,
+    footer: String,
+}
+
+struct ScoreRow {
+    rank: String,
+    name: String,
+    time: String,
+    /// The player's own entry (highlighted).
+    you: bool,
+}
+
+/// The nickname being typed: its characters, the cursor, and whether the
+/// cursor shows this frame (it blinks).
+struct NameView {
+    chars: Vec<char>,
+    cursor: usize,
+    blink: bool,
+}
+
+/// Leaderboard rows shown (the top ten, plus the player's own row below them
+/// if they're further down), and the height of the leaderboard area.
+const SCORE_ROWS: usize = 11;
+const SCORES_H: i32 = SCORE_ROWS as i32 * 10 + 12;
+/// Nickname entry: ^ row, the name, ⌄ row. Each character takes NAME_SLOT px.
+const NAME_H: i32 = 36;
+const NAME_SLOT: i32 = 8;
 
 /// What the theme dialog shows: the chosen names, how much of each has typed
 /// out, and where each sits in its list.
@@ -345,11 +400,50 @@ impl Dialog {
         ((W - DIALOG_W) / 2, (BOARD_TOP + BOARD_BOT) / 2 - h / 2, DIALOG_W, h)
     }
 
-    /// Height of the text lines plus the picker, if any.
+    /// Height of the text lines plus the picker, leaderboard, name entry and
+    /// theme chooser, whichever are present.
     fn content_h(&self) -> i32 {
         self.lines.len() as i32 * 10
-            + if self.picker.is_some() { 14 + PREVIEW_H + 4 + 12 } else { 0 }
+            + self.picker_h()
+            + if self.scores.is_some() { SCORES_H } else { 0 }
+            + if self.name.is_some() { NAME_H } else { 0 }
             + if self.theme.is_some() { THEME_H } else { 0 }
+    }
+
+    /// Height of the picker: a gap below any text lines, its name row, plus
+    /// the map and SEED row.
+    fn picker_h(&self) -> i32 {
+        self.picker_gap()
+            + match (self.picker, self.picker_map) {
+                (None, _) => 0,
+                (Some(_), false) => 14,
+                (Some(_), true) => 14 + PREVIEW_H + 4 + 12,
+            }
+    }
+
+    /// Space between the text lines and a picker under them.
+    fn picker_gap(&self) -> i32 {
+        if self.picker.is_some() && !self.lines.is_empty() { 6 } else { 0 }
+    }
+
+    /// Top of whatever follows the text lines.
+    fn below_lines(&self) -> i32 {
+        self.rect().1 + 22 + self.lines.len() as i32 * 10
+    }
+
+    /// Top of the leaderboard (its first row).
+    fn scores_y(&self) -> i32 {
+        self.below_lines() + self.picker_h()
+    }
+
+    /// y of the nickname row (the ^ buttons sit above it, ⌄ below).
+    fn name_y(&self) -> i32 {
+        self.scores_y() + if self.scores.is_some() { SCORES_H } else { 0 } + 12
+    }
+
+    /// x of the nickname's first character slot.
+    fn name_x(&self) -> i32 {
+        W / 2 - daily::NAME_MAX as i32 * NAME_SLOT / 2
     }
 
     /// Top of the theme chooser (its up arrow).
@@ -369,7 +463,7 @@ impl Dialog {
 
     /// y of the picker's `< NAME >` row.
     fn picker_y(&self) -> i32 {
-        self.rect().1 + 22 + self.lines.len() as i32 * 10
+        self.below_lines() + self.picker_gap()
     }
 
     /// y of the new-board dialog's SEED row (below the miniature).
@@ -400,6 +494,21 @@ impl Dialog {
             let (lx, rx) = (W / 2 - ARROW_DX, W / 2 + ARROW_DX);
             out.push(Button { label: "<", action: Action::LayoutPrev, text_x: lx - 2, text_y: py, hit: (dx + 4, py - 4, lx + 10 - (dx + 4), 15) });
             out.push(Button { label: ">", action: Action::LayoutNext, text_x: rx - 2, text_y: py, hit: (rx - 8, py - 4, dx + dw - 4 - (rx - 8), 15) });
+        }
+        if let Some(n) = &self.name {
+            // Arcade-style name entry for touch screens: ^ / ⌄ over and under
+            // the cursor (the hit areas span the whole name), < / > either side.
+            let (dx, _, dw, _) = self.rect();
+            let (nx, ny) = (self.name_x(), self.name_y());
+            let fw = daily::NAME_MAX as i32 * NAME_SLOT;
+            let cx = nx + n.cursor as i32 * NAME_SLOT + 1;
+            out.push(Button { label: "^", action: Action::NameUp, text_x: cx, text_y: ny - 11, hit: (nx - 2, ny - 13, fw + 4, 12) });
+            out.push(Button { label: "⌄", action: Action::NameDown, text_x: cx, text_y: ny + 11, hit: (nx - 2, ny + 9, fw + 4, 12) });
+            out.push(Button { label: "<", action: Action::NameLeft, text_x: nx - 14, text_y: ny, hit: (dx + 4, ny - 4, nx - 4 - (dx + 4), 15) });
+            out.push(Button { label: ">", action: Action::NameRight, text_x: nx + fw + 9, text_y: ny, hit: (nx + fw + 4, ny - 4, dx + dw - 4 - (nx + fw + 4), 15) });
+        }
+        if self.picker.is_some() && self.picker_map {
+            let (dx, _, dw, _) = self.rect();
             // The SEED row: [T]ODAY and [R]EPLAY on the right, with wide hit
             // areas for touch (there's no keyboard to type a seed with).
             let sy = self.seed_y();
@@ -519,6 +628,21 @@ pub struct Game {
     /// Seed the current board was dealt from: the same layout and seed always
     /// deal the same board.
     seed: u32,
+    /// Playing a daily challenge: no hints or shuffles, and the time can go
+    /// on the leaderboard.
+    challenge: Option<Challenge>,
+    /// Daily dialog open, showing this layout's board.
+    daily_menu: Option<usize>,
+    /// Types out the layout name in the daily dialog.
+    daily_typer: Typer,
+    /// Leaderboards fetched this session, by date and layout.
+    scores: Vec<(String, usize, Scores)>,
+    /// The daily just cleared: the time, the run, and sending it.
+    finish: Option<Finish>,
+    /// Leaderboard address (None: offline, as in tests).
+    pub leaderboard: Option<String>,
+    /// Last nickname used, offered again next time.
+    pub nickname: String,
     tile_sets: Vec<String>,
     tile_set: usize,
     /// Colour schemes loaded from assets/palettes/ (at least one).
@@ -588,6 +712,13 @@ impl Game {
             picker_typer: Typer::default(),
             seed_entry: String::new(),
             seed: 0,
+            challenge: None,
+            daily_menu: None,
+            daily_typer: Typer::default(),
+            scores: vec![],
+            finish: None,
+            leaderboard: None,
+            nickname: String::new(),
             tile_sets,
             tile_set,
             scheme: scheme % schemes.len(),
@@ -836,7 +967,10 @@ impl Game {
             !t.set_typer.done(self.tile_sets.get(t.set).map_or("", |n| n.as_str()))
                 || !t.scheme_typer.done(&self.schemes[t.scheme].name)
         });
-        !self.msg_finished() || picker || theme
+        let daily = self
+            .daily_menu
+            .is_some_and(|idx| self.daily_typer.typed < board::LAYOUTS[idx].name.chars().count());
+        !self.msg_finished() || picker || theme || daily
     }
 
     /// Sound the tiles the deal placed since last frame: a click for every
@@ -881,6 +1015,8 @@ impl Game {
             self.faces[i] = f;
         }
         self.alive = vec![true; n];
+        self.challenge = None; // DailyPlay sets it again after dealing
+        self.finish = None;
         self.selected = None;
         self.hint = None;
         self.bad = None;
@@ -1058,6 +1194,21 @@ impl Game {
             let sound = self.picker_typer.step(board::LAYOUTS[idx].name, dt);
             self.play_typing(sound);
         }
+        if let Some(idx) = self.daily_menu {
+            let sound = self.daily_typer.step(board::LAYOUTS[idx].name, dt);
+            self.play_typing(sound);
+        }
+        self.poll_requests();
+        // Typed characters go to the nickname while it's being entered (and
+        // are dropped otherwise, so none pile up).
+        while let Some(c) = macroquad::input::get_char_pressed() {
+            if let Some(Finish { submit: Submit::Editing(n), .. }) = &mut self.finish {
+                if let Some(c) = daily::name_char(c) {
+                    n.type_char(c);
+                    self.play_typing(Some(TypeSound::Click));
+                }
+            }
+        }
         if let Some(t) = &mut self.theme {
             // Both names type at once; at most one sound per frame.
             let set_name = self.tile_sets.get(t.set).map_or("", |n| n.as_str());
@@ -1094,7 +1245,32 @@ impl Game {
         let (mx, my) = (mouse.0.floor() as i32, mouse.1.floor() as i32);
         self.hover = self.pick(mx, my);
 
-        let keys: &[(&[KeyCode], Action)] = if self.picker.is_some() {
+        let keys: &[(&[KeyCode], Action)] = if self.entering_name() {
+            // Typing a nickname: letters are the name, so no letter hotkeys.
+            &[
+                (&[KeyCode::Up], Action::NameUp),
+                (&[KeyCode::Down], Action::NameDown),
+                (&[KeyCode::Left], Action::NameLeft),
+                (&[KeyCode::Right], Action::NameRight),
+                (&[KeyCode::Backspace], Action::NameBack),
+                (&[KeyCode::Enter, KeyCode::KpEnter], Action::NameSubmit),
+                (&[KeyCode::Escape], Action::NameSkip),
+            ]
+        } else if matches!(&self.finish, Some(Finish { submit: Submit::Sending(_) | Submit::Failed(_), .. })) {
+            &[
+                (&[KeyCode::Enter, KeyCode::KpEnter], Action::NameSubmit),
+                (&[KeyCode::Escape], Action::NameSkip),
+                (&[KeyCode::M], Action::Mute),
+            ]
+        } else if self.daily_menu.is_some() {
+            &[
+                (&[KeyCode::Left, KeyCode::A], Action::LayoutPrev),
+                (&[KeyCode::Right, KeyCode::D], Action::LayoutNext),
+                (&[KeyCode::P, KeyCode::Y, KeyCode::Enter, KeyCode::KpEnter, KeyCode::Space], Action::DailyPlay),
+                (&[KeyCode::E, KeyCode::N, KeyCode::Escape, KeyCode::Backspace], Action::DailyExit),
+                (&[KeyCode::M], Action::Mute),
+            ]
+        } else if self.picker.is_some() {
             // The new-board dialog takes the keyboard while it is open.
             &[
                 (&[KeyCode::Left, KeyCode::A], Action::LayoutPrev),
@@ -1135,6 +1311,7 @@ impl Game {
                 (&[KeyCode::U, KeyCode::Z, KeyCode::Backspace], Action::Undo),
                 (&[KeyCode::S], Action::Shuffle),
                 (&[KeyCode::N], Action::New),
+                (&[KeyCode::D], Action::Daily),
                 (&[KeyCode::T], Action::Theme),
                 (&[KeyCode::F], Action::Dim),
                 (&[KeyCode::M], Action::Mute),
@@ -1198,15 +1375,27 @@ impl Game {
 
     /// The pop-up for the current state, if any.
     fn dialog(&self) -> Option<Dialog> {
+        if let Some(idx) = self.daily_menu {
+            let date = today_date();
+            return Some(Dialog {
+                title: "-- DAILY CHALLENGE --",
+                lines: vec![format!("{date}: NO HINTS OR SHUFFLES")],
+                buttons: vec![("[P]LAY", Action::DailyPlay), ("[E]XIT", Action::DailyExit)],
+                picker: Some(idx),
+                picker_shown: self.daily_typer.typed,
+                scores: Some(self.scores_view(&date, idx)),
+                ..Default::default()
+            });
+        }
         if let Some(idx) = self.picker {
             return Some(Dialog {
                 title: "-- NEW BOARD? --",
-                lines: vec![],
                 buttons: vec![("[Y]ES", Action::NewYes), ("[N]O", Action::NewNo)],
                 picker: Some(idx),
+                picker_map: true,
                 picker_shown: self.picker_typer.typed,
                 seed: self.seed_entry.clone(),
-                theme: None,
+                ..Default::default()
             });
         }
         if let Some(t) = &self.theme {
@@ -1214,9 +1403,6 @@ impl Game {
                 title: "-- THEME --",
                 lines: vec![],
                 buttons: vec![("[E]XIT", Action::ThemeExit), ("[A]CCEPT", Action::ThemeAccept), ("[R]ELOAD", Action::ThemeReload)],
-                picker: None,
-                picker_shown: 0,
-                seed: String::new(),
                 theme: Some(ThemeView {
                     set_name: self.tile_sets.get(t.set).cloned().unwrap_or_default(),
                     set_shown: t.set_typer.typed,
@@ -1226,54 +1412,270 @@ impl Game {
                     scheme_pos: (t.scheme + 1, self.schemes.len()),
                     crt: t.crt,
                 }),
+                ..Default::default()
             });
         }
         match self.state {
             State::Won => {
                 let mut buttons = vec![("[N] NEW BOARD", Action::New)];
+                if self.challenge.is_some() {
+                    buttons.push(("[D]AILY", Action::Daily));
+                }
                 if !cfg!(target_arch = "wasm32") {
                     buttons.push(("[ESC] QUIT", Action::Quit));
                 }
-                Some(Dialog {
-                    title: "** ALL TILES CLEARED **",
-                    lines: vec![self.board_name(), format!("TIME {}", fmt_time(self.elapsed))],
-                    buttons,
-                    picker: None,
-                    picker_shown: 0,
-                    seed: String::new(),
-                    theme: None,
-                })
+                match (&self.challenge, &self.finish) {
+                    (Some(c), Some(f)) => Some(self.daily_won_dialog(c, f, buttons)),
+                    _ => Some(Dialog {
+                        title: "** ALL TILES CLEARED **",
+                        lines: vec![self.board_name(), format!("TIME {}", fmt_time(self.elapsed))],
+                        buttons,
+                        ..Default::default()
+                    }),
+                }
             }
+            State::Stuck if self.challenge.is_some() => Some(Dialog {
+                title: "-- NO MOVES LEFT --",
+                lines: vec!["THE BOARD IS LOCKED.".into(), "UNDO AND TRY ANOTHER WAY.".into()],
+                buttons: vec![("[U]NDO", Action::Undo), ("[N]EW", Action::New)],
+                ..Default::default()
+            }),
             State::Stuck => Some(Dialog {
                 title: "-- NO MOVES LEFT --",
                 lines: vec!["THE BOARD IS LOCKED.".into()],
                 buttons: vec![("[S]HUFFLE", Action::Shuffle), ("[U]NDO", Action::Undo), ("[N]EW", Action::New)],
-                picker: None,
-                picker_shown: 0,
-                seed: String::new(),
-                theme: None,
+                ..Default::default()
             }),
             State::Playing => None,
         }
     }
 
+    /// The pop-up after clearing the daily: the time, then the nickname entry,
+    /// sending, the leaderboard, or what went wrong.
+    fn daily_won_dialog(&self, c: &Challenge, f: &Finish, done_buttons: Vec<(&'static str, Action)>) -> Dialog {
+        let mut lines = vec![format!("{} {} IN {}", board::LAYOUTS[self.layout].name, c.date, daily::fmt_ms(f.ms))];
+        let mut d = Dialog { title: "** DAILY CLEARED **", ..Default::default() };
+        match &f.submit {
+            Submit::Editing(n) => {
+                lines.push("ENTER YOUR NAME FOR THE LEADERBOARD".into());
+                d.name = Some(NameView { chars: n.chars.clone(), cursor: n.cursor, blink: ((self.t * 2.5) as i32) % 2 == 0 });
+                d.buttons = vec![("[ENTER] SUBMIT", Action::NameSubmit), ("[ESC] SKIP", Action::NameSkip)];
+            }
+            Submit::Sending(_) => {
+                lines.push("SENDING YOUR TIME...".into());
+                d.buttons = vec![("[ESC] SKIP", Action::NameSkip)];
+            }
+            Submit::Failed(m) => {
+                lines.push(format!("NOT SENT: {m}"));
+                d.buttons = vec![("[ENTER] RETRY", Action::NameSubmit), ("[ESC] SKIP", Action::NameSkip)];
+            }
+            Submit::Done(b) => {
+                lines.push(result_line(b));
+                d.scores = Some(scores_view_of(b, &self.nickname));
+                d.buttons = done_buttons;
+            }
+            Submit::Skipped => {
+                lines.push("TIME NOT SENT.".into());
+                d.buttons = done_buttons;
+            }
+        }
+        d.lines = lines;
+        d
+    }
+
+    /// The leaderboard view for a daily board, as far as it has loaded.
+    fn scores_view(&self, date: &str, layout: usize) -> ScoresView {
+        let message = |m: &str| ScoresView { rows: vec![], message: Some(m.into()), footer: String::new() };
+        match self.scores.iter().find(|(d, l, _)| d == date && *l == layout).map(|(_, _, s)| s) {
+            None | Some(Scores::Loading(_)) => message("LOADING..."),
+            Some(Scores::Failed(m)) => message(m),
+            Some(Scores::Ready(b)) => scores_view_of(b, &self.nickname),
+        }
+    }
+
+    /// Whether the nickname entry is taking the keyboard.
+    fn entering_name(&self) -> bool {
+        matches!(&self.finish, Some(Finish { submit: Submit::Editing(_), .. })) && self.state == State::Won
+    }
+
+    /// Open the daily dialog on the current layout and fetch its leaderboard.
+    pub fn open_daily(&mut self) {
+        if self.daily_menu.is_none() {
+            self.daily_menu = Some(self.layout);
+            self.daily_typer.restart();
+            self.fetch_scores(self.layout);
+            let s = format!("DAILY CHALLENGE {}. PICK A LAYOUT WITH < >, THEN [P]LAY.", today_date());
+            self.say(&s);
+        }
+    }
+
+    /// Show the daily dialog's layout name fully typed (screenshots).
+    pub fn finish_daily_typing(&mut self) {
+        self.daily_typer.t = 99.0;
+        self.daily_typer.typed = usize::MAX / 2;
+    }
+
+    /// Start fetching today's leaderboard for `layout`.
+    fn fetch_scores(&mut self, layout: usize) {
+        let date = today_date();
+        let s = match &self.leaderboard {
+            Some(url) => Scores::Loading(Request::get(&daily::board_url(url, &date, board::LAYOUTS[layout].name, &self.nickname))),
+            None => Scores::Failed("OFFLINE".into()),
+        };
+        self.scores.retain(|(d, l, _)| !(*d == date && *l == layout));
+        self.scores.push((date, layout, s));
+    }
+
+    /// Hand finished leaderboard requests their replies.
+    fn poll_requests(&mut self) {
+        for (_, _, s) in &mut self.scores {
+            if let Scores::Loading(r) = s {
+                if let Some(reply) = r.poll() {
+                    *s = match reply.and_then(|t| daily::parse(&t)) {
+                        Ok(b) => Scores::Ready(b),
+                        Err(m) => Scores::Failed(m),
+                    };
+                }
+            }
+        }
+        let reply = match &mut self.finish {
+            Some(Finish { submit: Submit::Sending(r), .. }) => r.poll(),
+            _ => None,
+        };
+        if let Some(reply) = reply {
+            self.submitted(reply);
+        }
+    }
+
+    /// Wait (up to a few seconds) for leaderboard requests to finish
+    /// (screenshots, which draw a single frame).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn settle_requests(&mut self) {
+        for _ in 0..100 {
+            self.poll_requests();
+            let busy = self.scores.iter().any(|(_, _, s)| matches!(s, Scores::Loading(_)))
+                || matches!(&self.finish, Some(Finish { submit: Submit::Sending(_), .. }));
+            if !busy {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    /// Send the cleared daily's time under the typed nickname (or retry).
+    fn submit_time(&mut self) {
+        let (Some(c), Some(f)) = (&self.challenge, &mut self.finish) else { return };
+        let name = match &f.submit {
+            Submit::Editing(n) => n.text(),
+            Submit::Failed(_) => self.nickname.clone(),
+            _ => return,
+        };
+        if name.is_empty() {
+            self.say("TYPE A NAME FIRST.");
+            return;
+        }
+        self.nickname = name.clone();
+        f.submit = match &self.leaderboard {
+            Some(url) => {
+                let body = daily::submit_body(&c.date, board::LAYOUTS[self.layout].name, &name, f.ms, &f.pairs);
+                Submit::Sending(Request::post(url, &body))
+            }
+            None => Submit::Failed("OFFLINE".into()),
+        };
+    }
+
+    /// The server answered a submitted time.
+    fn submitted(&mut self, reply: Reply) {
+        let Some(f) = &mut self.finish else { return };
+        match reply.and_then(|t| daily::parse(&t)) {
+            Ok(b) => {
+                let line = result_line(&b);
+                if let Some(c) = &self.challenge {
+                    // The answer is the latest leaderboard for this board.
+                    let (date, layout) = (c.date.clone(), self.layout);
+                    self.scores.retain(|(d, l, _)| !(*d == date && *l == layout));
+                    self.scores.push((date, layout, Scores::Ready(b.clone())));
+                }
+                f.submit = Submit::Done(b);
+                self.say_with_enter(&line);
+            }
+            Err(m) => {
+                f.submit = Submit::Failed(m.clone());
+                let s = format!("TIME NOT SENT: {m}. [ENTER] TO RETRY.");
+                self.say(&s);
+            }
+        }
+    }
+
+    /// Show the daily as just cleared in `ms`, at the nickname entry
+    /// (screenshots).
+    pub fn demo_daily_win(&mut self, ms: u32) {
+        self.set_board(self.layout, Some(today_seed()));
+        self.challenge = Some(Challenge { date: today_date() });
+        self.alive.iter_mut().for_each(|a| *a = false);
+        self.state = State::Won;
+        self.finish = Some(Finish { ms, pairs: vec![], submit: Submit::Editing(NameEdit::new(&self.nickname)) });
+    }
+
     /// Perform an action from a hotkey or a bar button. Returns false to quit.
     /// True while the new-board or theme dialog is open.
     fn modal(&self) -> bool {
-        self.picker.is_some() || self.theme.is_some()
+        self.picker.is_some()
+            || self.theme.is_some()
+            || self.daily_menu.is_some()
+            || matches!(&self.finish, Some(Finish { submit: Submit::Editing(_) | Submit::Sending(_) | Submit::Failed(_), .. }))
     }
 
     fn run(&mut self, action: Action) -> bool {
         // While a dialog is open, the bar's game actions wait (sound and quit
         // still work).
-        let game_action = matches!(action, Action::Hint | Action::Undo | Action::Shuffle | Action::New | Action::Theme | Action::Dim);
+        let game_action = matches!(action, Action::Hint | Action::Undo | Action::Shuffle | Action::New | Action::Daily | Action::Theme | Action::Dim);
         if self.modal() && game_action {
             return true;
         }
         match action {
+            Action::Hint if self.challenge.is_some() => self.say("NO HINTS IN THE DAILY CHALLENGE."),
             Action::Hint => self.show_hint(),
+            Action::Undo if self.challenge.is_some() && self.state == State::Won => {
+                self.say("DAILY CLEARED. [D]AILY TO PLAY IT AGAIN.")
+            }
             Action::Undo => self.undo(),
+            Action::Shuffle if self.challenge.is_some() => self.say("NO SHUFFLES IN THE DAILY CHALLENGE. [U]NDO INSTEAD."),
             Action::Shuffle => self.reshuffle(),
+            Action::Daily => self.open_daily(),
+            Action::DailyPlay => {
+                if let Some(idx) = self.daily_menu.take() {
+                    self.set_board(idx, Some(today_seed()));
+                    self.challenge = Some(Challenge { date: today_date() });
+                    self.say("DAILY CHALLENGE: NO HINTS OR SHUFFLES, BUT YOU CAN [U]NDO. GO!");
+                }
+            }
+            Action::DailyExit => {
+                if self.daily_menu.take().is_some() {
+                    self.say("DAILY CHALLENGE CLOSED.");
+                }
+            }
+            Action::NameUp | Action::NameDown | Action::NameLeft | Action::NameRight | Action::NameBack => {
+                if let Some(Finish { submit: Submit::Editing(n), .. }) = &mut self.finish {
+                    match action {
+                        Action::NameUp => n.cycle(1),
+                        Action::NameDown => n.cycle(-1),
+                        Action::NameLeft => n.move_cursor(-1),
+                        Action::NameRight => n.move_cursor(1),
+                        _ => n.backspace(),
+                    }
+                    self.play_typing(Some(TypeSound::Click));
+                }
+            }
+            Action::NameSubmit => self.submit_time(),
+            Action::NameSkip => {
+                if let Some(f) = &mut self.finish {
+                    if !matches!(f.submit, Submit::Done(_) | Submit::Skipped) {
+                        f.submit = Submit::Skipped;
+                        self.say("TIME NOT SENT.");
+                    }
+                }
+            }
             Action::New => self.open_picker(),
             Action::NewYes => {
                 if let Some(idx) = self.picker.take() {
@@ -1324,6 +1726,14 @@ impl Game {
                     self.seed_entry = if self.seed_entry == today { String::new() } else { today };
                     self.play_typing(Some(TypeSound::Click));
                 }
+            }
+            Action::LayoutPrev | Action::LayoutNext if self.daily_menu.is_some() => {
+                let n = board::LAYOUTS.len();
+                let idx = self.daily_menu.unwrap_or(0);
+                let idx = if action == Action::LayoutNext { (idx + 1) % n } else { (idx + n - 1) % n };
+                self.daily_menu = Some(idx);
+                self.daily_typer.restart();
+                self.fetch_scores(idx);
             }
             Action::LayoutPrev | Action::LayoutNext => {
                 if let Some(idx) = self.picker {
@@ -1432,10 +1842,23 @@ impl Game {
         let left = self.remaining();
         if left == 0 {
             self.state = State::Won;
-            self.say_with_enter("ALL TILES CLEARED. WELL PLAYED.");
+            if self.challenge.is_some() {
+                // The removed pairs in order: the run the server can check.
+                let pairs = self.history.iter().filter_map(|u| if let Undo::Pair(a, b) = u { Some([*a, *b]) } else { None }).flatten().collect();
+                let ms = (self.elapsed * 1000.0) as u32;
+                self.finish = Some(Finish { ms, pairs, submit: Submit::Editing(NameEdit::new(&self.nickname)) });
+                let s = format!("DAILY CLEARED IN {}. ENTER YOUR NAME.", daily::fmt_ms(ms));
+                self.say_with_enter(&s);
+            } else {
+                self.say_with_enter("ALL TILES CLEARED. WELL PLAYED.");
+            }
         } else if self.moves == 0 {
             self.state = State::Stuck;
-            self.say_with_enter("NO MOVES LEFT. [S]HUFFLE, [U]NDO OR [N]EW.");
+            if self.challenge.is_some() {
+                self.say_with_enter("NO MOVES LEFT. [U]NDO TO TRY ANOTHER WAY.");
+            } else {
+                self.say_with_enter("NO MOVES LEFT. [S]HUFFLE, [U]NDO OR [N]EW.");
+            }
         } else {
             let s = format!("MATCH. {} TILES LEFT, {} MOVES OPEN.", left, self.moves);
             self.say_with_enter(&s);
@@ -1631,13 +2054,16 @@ impl Game {
     }
 
     fn render_hud(&self, fb: &mut Fb) {
-        let x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
-        let name = format!(
-            "{} / {} / {}",
-            self.board_name(),
-            self.tile_set_name(),
-            self.schemes[self.scheme].name
-        );
+        let mut x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
+        let board = match &self.challenge {
+            Some(c) => {
+                // Daily challenge: DAILY TURTLE 2026-11-08 (same length as the usual name).
+                x = fb.text(x + 6, 4, "DAILY", AMBER);
+                format!("{} {}", board::LAYOUTS[self.layout].name, c.date)
+            }
+            None => self.board_name(),
+        };
+        let name = format!("{} / {} / {}", board, self.tile_set_name(), self.schemes[self.scheme].name);
         fb.text(x + 6, 4, &name, UI_DK);
         let stats = format!(
             "TILES {:3} | MOVES {:2} | TIME {}",
@@ -1660,8 +2086,10 @@ impl Game {
         dashed(fb, RULE_Y);
         for (k, b) in self.bar.iter().enumerate() {
             let pressed = self.bar_flash.map_or(false, |(f, _)| f == k);
-            // MUTE shows in red while sound is off.
-            let normal = if b.action == Action::Mute && self.muted { RED } else { UI_DK };
+            // MUTE shows in red while sound is off; HINT and SHUFFLE are
+            // dimmed in the daily challenge, which has neither.
+            let off = self.challenge.is_some() && matches!(b.action, Action::Hint | Action::Shuffle);
+            let normal = if b.action == Action::Mute && self.muted { RED } else if off { DIM } else { UI_DK };
             draw_button(fb, b.label, b.text_x, b.text_y, normal, self.bar_hover == Some(k), pressed);
         }
     }
@@ -1717,6 +2145,28 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         }
         let count = format!("{}/{}", idx + 1, board::LAYOUTS.len());
         fb.text(x + w - 8 - Fb::text_w(&count) + 1, y + 8, &count, UI_DK);
+    }
+    if let Some(s) = &d.scores {
+        draw_scores(fb, s, x, w, d.scores_y());
+    }
+    if let Some(n) = &d.name {
+        let (nx, ny) = (d.name_x(), d.name_y());
+        for k in 0..daily::NAME_MAX {
+            let sx = nx + k as i32 * NAME_SLOT;
+            let c = n.chars.get(k).copied();
+            if k == n.cursor && n.blink {
+                fb.rect(sx - 1, ny - 2, NAME_SLOT - 1, 11, AMBER);
+                fb.text(sx + 1, ny, &c.unwrap_or(' ').to_string(), BG);
+            } else {
+                match c {
+                    Some(c) => fb.text(sx + 1, ny, &c.to_string(), AMBER),
+                    None => fb.text(sx + 1, ny, "_", UI_DK),
+                };
+            }
+        }
+    }
+    if let (Some(idx), true) = (d.picker, d.picker_map) {
+        let py = d.picker_y();
         draw_layout_preview(fb, idx, W / 2, py + 14 + PREVIEW_H / 2);
         // SEED row: the typed digits with blanks still to fill, or RANDOM.
         let sy = d.seed_y();
@@ -1754,6 +2204,90 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         let normal = if matches!(b.action, Action::Crt | Action::SeedReplay | Action::SeedToday) { UI_DK } else { UI };
         draw_button(fb, b.label, b.text_x, b.text_y, normal, hover == Some(k), false);
     }
+}
+
+/// Draw a leaderboard from `y`: rank, name and time per row, the player's own
+/// row in amber; or the message in their place. The footer sits below.
+fn draw_scores(fb: &mut Fb, s: &ScoresView, x: i32, w: i32, y: i32) {
+    let (rank_r, name_x, time_r) = (x + 50, x + 58, x + w - 50);
+    if let Some(m) = &s.message {
+        fb.text_center(W / 2, y + SCORES_H / 2 - 8, m, UI_DK, AMBER);
+    }
+    for (k, r) in s.rows.iter().enumerate() {
+        let ry = y + k as i32 * 10;
+        let (c, dim) = if r.you { (AMBER, AMBER) } else { (UI, UI_DK) };
+        fb.text(rank_r - Fb::text_w(&r.rank) + 1, ry, &r.rank, dim);
+        fb.text(name_x, ry, &r.name, c);
+        fb.text(time_r - Fb::text_w(&r.time) + 1, ry, &r.time, c);
+    }
+    fb.text_center(W / 2, y + SCORE_ROWS as i32 * 10 + 2, &s.footer, UI_DK, AMBER);
+}
+
+/// The view of a fetched leaderboard: the top ten, the player's own row
+/// under them if they're further down, and how many have played.
+fn scores_view_of(b: &daily::Board, you: &str) -> ScoresView {
+    let row = |rank: u32, name: &str, ms: u32| ScoreRow {
+        rank: format!("{rank}."),
+        name: name.to_string(),
+        time: daily::fmt_ms(ms),
+        you: !you.is_empty() && name == you,
+    };
+    let mut rows: Vec<ScoreRow> = b.top.iter().take(SCORE_ROWS - 1).map(|e| row(e.rank, &e.name, e.ms)).collect();
+    if let Some((rank, ms)) = b.you {
+        if !rows.iter().any(|r| r.you) {
+            rows.push(row(rank, you, ms));
+        }
+    }
+    let footer = match b.count {
+        0 => String::new(),
+        1 => "1 PLAYER SO FAR".into(),
+        n => format!("{n} PLAYERS SO FAR"),
+    };
+    let message = b.top.is_empty().then(|| "NO TIMES YET. BE THE FIRST!".to_string());
+    ScoresView { rows, message, footer }
+}
+
+/// What the server made of a submitted time.
+fn result_line(b: &daily::Board) -> String {
+    let (rank, best) = b.you.unwrap_or((0, 0));
+    match b.result.as_deref() {
+        Some("BETTER") => format!("NEW PERSONAL BEST! RANK {rank} OF {}", b.count),
+        Some("KEPT") => format!("YOUR BEST STAYS {}, RANK {rank}", daily::fmt_ms(best)),
+        _ => format!("YOU'RE RANK {rank} OF {}", b.count),
+    }
+}
+
+/// Today's date (UTC) as YYYY-MM-DD: the daily boards' seed.
+pub fn today_date() -> String {
+    fmt_seed(&format!("{:0w$}", today_seed(), w = SEED_DIGITS))
+}
+
+/// The daily challenge being played (the board's layout is the game's).
+struct Challenge {
+    /// YYYY-MM-DD, also the board's seed.
+    date: String,
+}
+
+/// A leaderboard being fetched, fetched, or failed (with the reason).
+enum Scores {
+    Loading(Request),
+    Ready(daily::Board),
+    Failed(String),
+}
+
+/// A cleared daily: its time, the removed tiles in order, and sending it.
+struct Finish {
+    ms: u32,
+    pairs: Vec<usize>,
+    submit: Submit,
+}
+
+enum Submit {
+    Editing(NameEdit),
+    Sending(Request),
+    Done(daily::Board),
+    Failed(String),
+    Skipped,
 }
 
 /// Grid extent of a layout: (min gx, max gx, min gy, max gy), tiles being 2x2.
@@ -1980,6 +2514,140 @@ mod tests {
         g.run(Action::SeedToday);
         g.run(Action::NewYes);
         assert_eq!(g.seed.to_string(), today);
+    }
+
+    /// Clear the board by removing the pairs the deal placed, in order.
+    fn solve(g: &mut Game) {
+        let rng = RandGenerator::new();
+        rng.srand(g.seed as u64);
+        let slots: Vec<usize> = (0..g.pos.len()).collect();
+        let dealt = loop {
+            if let Some(d) = board::deal(&rng, &g.nb, &slots, &art::full_set_pairs()) {
+                break d;
+            }
+        };
+        for pair in dealt.chunks(2) {
+            g.remove_pair(pair[0].0, pair[1].0);
+        }
+    }
+
+    #[test]
+    fn daily_challenge_deals_todays_board_without_hints_or_shuffles() {
+        let mut g = test_game();
+        g.set_deal_time(99.0);
+        g.run(Action::Daily);
+        assert_eq!(g.daily_menu, Some(0));
+        assert!(g.dialog().is_some_and(|d| d.scores.is_some() && d.picker == Some(0) && !d.picker_map));
+        g.run(Action::LayoutNext);
+        g.run(Action::DailyPlay);
+        assert_eq!((g.layout, g.seed), (1, today_seed()));
+        assert!(g.challenge.is_some());
+        let faces = g.faces.clone();
+        g.set_deal_time(99.0);
+        g.run(Action::Hint);
+        assert_eq!(g.hint, None);
+        g.run(Action::Shuffle);
+        assert_eq!(g.faces, faces, "no shuffles in the daily");
+        // A different layout's daily is a different board; the same is the same.
+        g.run(Action::Daily);
+        g.run(Action::DailyPlay);
+        assert_eq!(g.faces, faces);
+        // A new board from the new-board dialog leaves the challenge.
+        g.run(Action::New);
+        g.run(Action::NewYes);
+        assert!(g.challenge.is_none());
+    }
+
+    #[test]
+    fn clearing_the_daily_asks_for_a_name_and_sends_the_run() {
+        let mut g = test_game();
+        g.nickname = "SAV".into();
+        g.run(Action::Daily);
+        g.run(Action::DailyPlay);
+        g.elapsed = 201.45;
+        solve(&mut g);
+        assert!(g.state == State::Won);
+        let f = g.finish.as_ref().unwrap();
+        assert_eq!(f.ms, 201_450);
+        let mut seen = f.pairs.clone();
+        seen.sort();
+        assert_eq!(seen, (0..144).collect::<Vec<_>>(), "every tile once, in removal order");
+        assert!(g.entering_name() && g.modal());
+        // The name entry: last nickname offered, arcade keys edit it.
+        g.run(Action::NameUp); // empty slot after SAV -> A
+        g.run(Action::NameBack);
+        assert_eq!(g.dialog().unwrap().name.unwrap().chars, vec!['S', 'A', 'V']);
+        g.run(Action::NameBack);
+        g.run(Action::Undo); // blocked while the name is entered
+        assert!(g.state == State::Won);
+        // Offline: the time isn't lost, it can be retried.
+        g.run(Action::NameSubmit);
+        assert!(matches!(&g.finish.as_ref().unwrap().submit, Submit::Failed(_)));
+        assert_eq!(g.nickname, "SA");
+        // The server's answer becomes the leaderboard shown.
+        g.submitted(Ok("DAILY X TURTLE
+COUNT 3
+YOU 2 201450
+RESULT NEW
+1 99000 ALICE
+2 201450 SA
+3 300000 BOB
+".into()));
+        let d = g.dialog().unwrap();
+        let s = d.scores.unwrap();
+        assert_eq!(s.rows.len(), 3);
+        assert!(s.rows[1].you && !s.rows[0].you);
+        assert_eq!(d.lines[1], "YOU'RE RANK 2 OF 3");
+        assert!(d.buttons.iter().any(|b| b.1 == Action::Daily));
+        assert!(!g.modal());
+        g.run(Action::Undo);
+        assert!(g.state == State::Won, "the cleared daily stays cleared");
+    }
+
+    #[test]
+    fn leaderboards_show_your_row_below_the_top_ten() {
+        let mut text = String::from("DAILY X TURTLE
+COUNT 40
+YOU 25 500000
+");
+        for r in 1..=10 {
+            text += &format!("{r} {} P{r}
+", 100000 + r * 1000);
+        }
+        let v = scores_view_of(&daily::parse(&text).unwrap(), "ME");
+        assert_eq!(v.rows.len(), 11);
+        assert!(v.rows[10].you && v.rows[10].rank == "25." && v.rows[10].name == "ME");
+        assert_eq!(v.footer, "40 PLAYERS SO FAR");
+        let empty = scores_view_of(&daily::parse("DAILY X TURTLE
+COUNT 0
+YOU - -
+").unwrap(), "");
+        assert!(empty.message.is_some() && empty.rows.is_empty());
+    }
+
+    #[test]
+    fn dialog_buttons_stay_inside_and_apart() {
+        let mut g = test_game();
+        g.demo_daily_win(90_000);
+        g.run(Action::Daily); // blocked while the name is entered
+        assert!(g.daily_menu.is_none());
+        let mut dialogs = vec![g.dialog().unwrap()];
+        g.run(Action::NameSkip);
+        g.run(Action::Daily);
+        dialogs.push(g.dialog().unwrap());
+        for d in dialogs {
+            let (x, y, w, h) = d.rect();
+            assert!(y >= BOARD_TOP && y + h <= BOARD_BOT, "{} too tall", d.title);
+            let bs = d.layout_buttons();
+            for (k, b) in bs.iter().enumerate() {
+                let (bx, by, bw, bh) = b.hit;
+                assert!(bx >= x && by >= y && bx + bw <= x + w && by + bh <= y + h, "{}: {} sticks out", d.title, b.label);
+                for c in &bs[k + 1..] {
+                    let (cx, cy, cw, ch) = c.hit;
+                    assert!(bx + bw <= cx || cx + cw <= bx || by + bh <= cy || cy + ch <= by, "{}: {} overlaps {}", d.title, b.label, c.label);
+                }
+            }
+        }
     }
 
     #[test]

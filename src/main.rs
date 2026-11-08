@@ -1,8 +1,10 @@
 mod art;
 mod board;
+mod daily;
 mod fb;
 mod font;
 mod game;
+mod net;
 mod palette;
 mod sprites;
 
@@ -109,6 +111,26 @@ async fn main() {
     }
     if args.iter().any(|a| a == "--dim") {
         game.set_dim(true);
+    }
+    // `--leaderboard URL` sends daily challenge times somewhere else (e.g. the
+    // local test server, web/dev-server.js).
+    game.leaderboard = Some(arg("--leaderboard").unwrap_or_else(|| daily::DEFAULT_URL.to_string()));
+    // `--name NAME` fills in the nickname for the daily leaderboard.
+    if let Some(n) = arg("--name") {
+        game.nickname = n;
+    }
+    // `--daily-dialog` opens the daily dialog, `--daily-win SECONDS` shows
+    // the daily as just cleared at the nickname entry (for screenshots).
+    if args.iter().any(|a| a == "--daily-dialog") {
+        game.open_daily();
+        game.finish_daily_typing();
+        #[cfg(not(target_arch = "wasm32"))]
+        if shot.is_some() {
+            game.settle_requests();
+        }
+    }
+    if let Some(s) = arg("--daily-win").and_then(|s| s.parse::<f32>().ok()) {
+        game.demo_daily_win((s * 1000.0) as u32);
     }
     // `--new-dialog` opens the new-board dialog (for screenshots).
     if args.iter().any(|a| a == "--new-dialog") {
