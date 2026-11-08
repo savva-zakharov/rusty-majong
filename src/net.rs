@@ -120,7 +120,7 @@ pub extern "C" fn rusty_net_crate_version() -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     #[test]
@@ -129,8 +129,13 @@ mod tests {
         assert_eq!(error_text("<html>gateway</html>"), "SERVER TROUBLE");
     }
 
-    /// Against the local test server: `node web/dev-server.js 8099`, then
-    /// `cargo test -- --ignored daily_round_trip`.
+    /// The local test server's API: DAILY_TEST_URL, else the default port.
+    pub fn test_url() -> String {
+        std::env::var("DAILY_TEST_URL").unwrap_or_else(|_| "http://localhost:8080/api/daily".into())
+    }
+
+    /// Against the local test server: `node web/dev-server.js`, then
+    /// `cargo test -- --ignored daily` (DAILY_TEST_URL for another address).
     #[test]
     #[ignore]
     fn daily_round_trip() {
@@ -140,7 +145,7 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         };
-        let url = "http://localhost:8099/api/daily";
+        let url = &test_url();
         let date = crate::game::today_date();
         let pairs: Vec<usize> = (0..144).collect();
         let body = crate::daily::submit_body(&date, "PYRAMID", "ROUNDTRP", 99_900, &pairs);

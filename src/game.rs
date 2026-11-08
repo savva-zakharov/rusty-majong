@@ -1609,12 +1609,33 @@ impl Game {
 
     /// Show the daily as just cleared in `ms`, at the nickname entry
     /// (screenshots).
+    /// Plays the whole board in the deal's own order, so the run sent is a
+    /// real solution the server accepts.
     pub fn demo_daily_win(&mut self, ms: u32) {
         self.set_board(self.layout, Some(today_seed()));
         self.challenge = Some(Challenge { date: today_date() });
-        self.alive.iter_mut().for_each(|a| *a = false);
-        self.state = State::Won;
-        self.finish = Some(Finish { ms, pairs: vec![], submit: Submit::Editing(NameEdit::new(&self.nickname)) });
+        self.set_deal_time(99.0);
+        self.elapsed = ms as f32 / 1000.0;
+        for pair in self.solution().chunks(2) {
+            self.remove_pair(pair[0], pair[1]);
+        }
+        self.particles.clear();
+        self.ghosts.clear();
+    }
+
+    /// A solution of the current board as dealt: the tiles in the order the
+    /// deal placed them, pairs side by side (removing them in that order
+    /// always works, since the deal plays the game backwards).
+    fn solution(&self) -> Vec<usize> {
+        let rng = RandGenerator::new();
+        rng.srand(self.seed as u64);
+        let slots: Vec<usize> = (0..self.pos.len()).collect();
+        let dealt = loop {
+            if let Some(d) = board::deal(&rng, &self.nb, &slots, &art::full_set_pairs()) {
+                break d;
+            }
+        };
+        dealt.into_iter().map(|(i, _)| i).collect()
     }
 
     /// Perform an action from a hotkey or a bar button. Returns false to quit.
@@ -2518,16 +2539,8 @@ mod tests {
 
     /// Clear the board by removing the pairs the deal placed, in order.
     fn solve(g: &mut Game) {
-        let rng = RandGenerator::new();
-        rng.srand(g.seed as u64);
-        let slots: Vec<usize> = (0..g.pos.len()).collect();
-        let dealt = loop {
-            if let Some(d) = board::deal(&rng, &g.nb, &slots, &art::full_set_pairs()) {
-                break d;
-            }
-        };
-        for pair in dealt.chunks(2) {
-            g.remove_pair(pair[0].0, pair[1].0);
+        for pair in g.solution().chunks(2) {
+            g.remove_pair(pair[0], pair[1]);
         }
     }
 
@@ -2604,6 +2617,30 @@ RESULT NEW
         assert!(g.state == State::Won, "the cleared daily stays cleared");
     }
 
+    /// The demo win's run, as the game sends it, against the local test
+    /// server (see net::tests::daily_round_trip).
+    #[test]
+    #[ignore]
+    fn daily_demo_win_submits() {
+        let mut g = test_game();
+        g.leaderboard = Some(crate::net::tests::test_url());
+        g.nickname = "DEMO".into();
+        g.demo_daily_win(95_000);
+        g.run(Action::NameSubmit);
+        for _ in 0..300 {
+            g.poll_requests();
+            if !matches!(&g.finish.as_ref().unwrap().submit, Submit::Sending(_)) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        match &g.finish.as_ref().unwrap().submit {
+            Submit::Done(b) => assert!(b.top.iter().any(|e| e.name == "DEMO" && e.ms == 95_000)),
+            Submit::Failed(m) => panic!("not sent: {m}"),
+            _ => panic!("no answer"),
+        }
+    }
+
     #[test]
     fn leaderboards_show_your_row_below_the_top_ten() {
         let mut text = String::from("DAILY X TURTLE
@@ -2629,6 +2666,8 @@ YOU - -
     fn dialog_buttons_stay_inside_and_apart() {
         let mut g = test_game();
         g.demo_daily_win(90_000);
+        let f = g.finish.as_ref().unwrap();
+        assert_eq!((f.ms, f.pairs.len()), (90_000, 144), "the demo win sends a full run");
         g.run(Action::Daily); // blocked while the name is entered
         assert!(g.daily_menu.is_none());
         let mut dialogs = vec![g.dialog().unwrap()];
