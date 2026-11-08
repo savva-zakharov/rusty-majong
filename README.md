@@ -96,11 +96,14 @@ its left or right side is open. Flowers match any flower, and seasons match any 
 There are four 144-tile layouts. Pick one when you start a new board (see below), or start on one
 with `cargo run --release -- --layout castle`.
 
-Every board has a seed, a number from `000000` to `999999`, shown after the layout's name in the
-top line (`TURTLE #004217`), in the `DEALT` message and on the win screen. The same layout and
+Every board has a seed, eight digits grouped like a date (`0000-00-00` to `9999-99-99`), shown
+after the layout's name in the top line (`TURTLE #2026-11-08`), in the `DEALT` message and on the
+win screen. A date makes a natural seed: everyone who plays `TURTLE #2026-11-08` gets the same
+daily board. The same layout and
 seed always deal the same board, on desktop, the web and Android alike, so a board can be played
 again or shared. New boards get a random seed unless you give one in the new-board dialog (see
-below), or start with one: `cargo run --release -- --layout castle --seed 4217`. Shuffles stay
+below), or start with one: `cargo run --release -- --layout castle --seed 2026-11-08` (the dashes
+are optional). Shuffles stay
 random; the seed sets the deal.
 
 | Layout | Shape |
@@ -145,11 +148,13 @@ a new board on that layout; `[N]O` closes the dialog and keeps the current board
 `←` / `→` (or `A` / `D`) change the layout, `Y`, `Enter` or `Space` confirm, and `N` or `Esc`
 cancel. While it's open, the board behind it ignores clicks.
 
-Below the map is the **SEED** row. It says `RANDOM` until you type digits (up to six, each with a
-click); `Backspace` deletes one, and on an empty seed closes the dialog. `[R]EPLAY` (the `R` key,
-or a tap anywhere on the row) fills in the current board's layout and seed, so `[Y]ES` deals the
-same board again from the start; pressing it again goes back to a random seed. On a touch screen
-with no keyboard, replay works but typing a seed doesn't.
+Below the map is the **SEED** row. It says `RANDOM` until you type digits (up to eight, each
+with a click), which fill a `____-__-__` mask, so typing `20261108` gives `2026-11-08`;
+`Backspace` deletes one, and on an empty seed closes the dialog. `[T]ODAY` fills in today's date
+(UTC, so it's the same daily board everywhere). `[R]EPLAY` fills in the current board's layout and
+seed, so `[Y]ES` deals the same board again from the start. Pressing either again goes back to a
+random seed. Both have wide hit areas for touch screens, where there's no keyboard to type a seed
+with.
 
 `[T]HEME` opens the **THEME** dialog. In the middle is one tile on a small patch of table, drawn
 in the tile set and colours you're trying. Arrows sit round it: `<` / `>` (or the `←` / `→` keys)

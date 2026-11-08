@@ -171,6 +171,9 @@ enum Action {
     SeedDigit(u8),
     SeedBack,
     SeedReplay,
+    /// New-board dialog: fill in today's date as the seed (the daily board),
+    /// or go back to a random seed if it is already filled in.
+    SeedToday,
     /// Open the theme dialog (tile set and colour scheme).
     Theme,
     /// Theme dialog: previous / next tile set, previous / next colour scheme.
@@ -297,9 +300,43 @@ const PREVIEW_H: i32 = 74;
 const PREVIEW_W: i32 = DIALOG_W - 24;
 /// Distance of the picker's `<` / `>` arrows from the dialog's centre.
 const ARROW_DX: i32 = 64;
-/// Seeds run from 0 to SEED_MAX - 1 and show as SEED_DIGITS digits.
-const SEED_MAX: u32 = 1_000_000;
-const SEED_DIGITS: usize = 6;
+/// Seeds run from 0 to SEED_MAX - 1 and show as SEED_DIGITS digits, grouped
+/// like a date (`2026-11-08`), so today's date makes a daily board.
+const SEED_MAX: u32 = 100_000_000;
+const SEED_DIGITS: usize = 8;
+
+/// Seed digits (or a partly typed seed padded with `_`) grouped like a date:
+/// `20261108` -> `2026-11-08`.
+fn fmt_seed(digits: &str) -> String {
+    let mut out = String::new();
+    for (k, c) in digits.chars().enumerate() {
+        if k == 4 || k == 6 {
+            out.push('-');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The seed for a date, given as days since 1970-01-01: its YYYYMMDD digits.
+fn date_seed(days: i64) -> u32 {
+    // Howard Hinnant's days-to-civil conversion.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    (y * 10_000 + m * 100 + d) as u32
+}
+
+/// Today's date (UTC, so everyone gets the same daily board) as a seed.
+fn today_seed() -> u32 {
+    date_seed((macroquad::miniquad::date::now() / 86_400.0).floor() as i64)
+}
 
 impl Dialog {
     /// The dialog box: x, y, w, h. Rows: title, lines, a blank, the buttons.
@@ -363,11 +400,15 @@ impl Dialog {
             let (lx, rx) = (W / 2 - ARROW_DX, W / 2 + ARROW_DX);
             out.push(Button { label: "<", action: Action::LayoutPrev, text_x: lx - 2, text_y: py, hit: (dx + 4, py - 4, lx + 10 - (dx + 4), 15) });
             out.push(Button { label: ">", action: Action::LayoutNext, text_x: rx - 2, text_y: py, hit: (rx - 8, py - 4, dx + dw - 4 - (rx - 8), 15) });
-            // The SEED row: its whole width is the replay button (for touch).
+            // The SEED row: [T]ODAY and [R]EPLAY on the right, with wide hit
+            // areas for touch (there's no keyboard to type a seed with).
             let sy = self.seed_y();
-            let label = "[R]EPLAY";
-            let lx = dx + dw - 10 - (Fb::text_w(label) - 1);
-            out.push(Button { label, action: Action::SeedReplay, text_x: lx, text_y: sy, hit: (dx + 4, sy - 3, dw - 8, 12) });
+            let (today, replay) = ("[T]ODAY", "[R]EPLAY");
+            let rx = dx + dw - 10 - (Fb::text_w(replay) - 1);
+            let tx = rx - 14 - (Fb::text_w(today) - 1);
+            let mid = rx - 7;
+            out.push(Button { label: today, action: Action::SeedToday, text_x: tx, text_y: sy, hit: (tx - 6, sy - 3, mid - (tx - 6), 12) });
+            out.push(Button { label: replay, action: Action::SeedReplay, text_x: rx, text_y: sy, hit: (mid, sy - 3, dx + dw - 4 - mid, 12) });
         }
         if self.theme.is_some() {
             // Arrows round the preview: left / right change the tile set,
@@ -765,7 +806,7 @@ impl Game {
             self.picker = Some(self.layout);
             self.picker_typer.restart();
             self.seed_entry.clear();
-            self.say("NEW BOARD? PICK A LAYOUT WITH < >, TYPE A SEED OR [R]EPLAY, THEN [Y]ES.");
+            self.say("NEW BOARD? PICK A LAYOUT WITH < >, TYPE A SEED, [T]ODAY OR [R]EPLAY, THEN [Y]ES.");
         }
     }
 
@@ -855,9 +896,9 @@ impl Game {
         self.say(&s);
     }
 
-    /// The current board's name: layout and seed, e.g. `TURTLE #004217`.
+    /// The current board's name: layout and seed, e.g. `TURTLE #2026-11-08`.
     fn board_name(&self) -> String {
-        format!("{} #{:0w$}", board::LAYOUTS[self.layout].name, self.seed, w = SEED_DIGITS)
+        format!("{} #{}", board::LAYOUTS[self.layout].name, fmt_seed(&format!("{:0w$}", self.seed, w = SEED_DIGITS)))
     }
 
     /// Queue a message for the command line.
@@ -1062,6 +1103,7 @@ impl Game {
                 (&[KeyCode::N, KeyCode::Escape], Action::NewNo),
                 (&[KeyCode::Backspace], Action::SeedBack),
                 (&[KeyCode::R], Action::SeedReplay),
+                (&[KeyCode::T], Action::SeedToday),
                 (&[KeyCode::Key0, KeyCode::Kp0], Action::SeedDigit(0)),
                 (&[KeyCode::Key1, KeyCode::Kp1], Action::SeedDigit(1)),
                 (&[KeyCode::Key2, KeyCode::Kp2], Action::SeedDigit(2)),
@@ -1273,6 +1315,13 @@ impl Game {
                         }
                         self.seed_entry = current;
                     }
+                    self.play_typing(Some(TypeSound::Click));
+                }
+            }
+            Action::SeedToday => {
+                if self.picker.is_some() {
+                    let today = format!("{:0w$}", today_seed(), w = SEED_DIGITS);
+                    self.seed_entry = if self.seed_entry == today { String::new() } else { today };
                     self.play_typing(Some(TypeSound::Click));
                 }
             }
@@ -1584,7 +1633,7 @@ impl Game {
     fn render_hud(&self, fb: &mut Fb) {
         let x = fb.text(4, 4, "RUSTY-MAJONG", AMBER);
         let name = format!(
-            "V0.4 {} / {} / {}",
+            "{} / {} / {}",
             self.board_name(),
             self.tile_set_name(),
             self.schemes[self.scheme].name
@@ -1675,8 +1724,12 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         if d.seed.is_empty() {
             fb.text(vx, sy, "RANDOM", UI_DK);
         } else {
-            let end = fb.text(vx, sy, &d.seed, AMBER);
-            fb.text(end, sy, &"_".repeat(SEED_DIGITS - d.seed.len()), UI_DK);
+            // Typed digits in amber; blanks still to fill and the dashes dim.
+            let padded = format!("{}{}", d.seed, "_".repeat(SEED_DIGITS - d.seed.len()));
+            let mut cx = vx;
+            for c in fmt_seed(&padded).chars() {
+                cx = fb.text(cx, sy, &c.to_string(), if c.is_ascii_digit() { AMBER } else { UI_DK });
+            }
         }
     }
     if let Some(t) = &d.theme {
@@ -1698,7 +1751,7 @@ fn draw_dialog(fb: &mut Fb, d: &Dialog, hover: Option<usize>) {
         fb.text(nx, ny + 20, if t.crt { "ON" } else { "OFF" }, AMBER);
     }
     for (k, b) in d.layout_buttons().iter().enumerate() {
-        let normal = if matches!(b.action, Action::Crt | Action::SeedReplay) { UI_DK } else { UI };
+        let normal = if matches!(b.action, Action::Crt | Action::SeedReplay | Action::SeedToday) { UI_DK } else { UI };
         draw_button(fb, b.label, b.text_x, b.text_y, normal, hover == Some(k), false);
     }
 }
@@ -1910,11 +1963,31 @@ mod tests {
     }
 
     #[test]
+    fn seeds_read_like_dates_and_today_fills_one_in() {
+        assert_eq!(date_seed(0), 19700101);
+        assert_eq!(date_seed(11016), 20000229);
+        assert_eq!(date_seed(20765), 20261108);
+        assert_eq!(fmt_seed("20261108"), "2026-11-08");
+        assert_eq!(fmt_seed("202611__"), "2026-11-__");
+        let mut g = test_game();
+        g.run(Action::New);
+        g.run(Action::SeedToday);
+        let today = g.seed_entry.clone();
+        assert_eq!(today.len(), 8);
+        assert!(today.starts_with("20"), "{today}");
+        g.run(Action::SeedToday);
+        assert_eq!(g.seed_entry, "", "pressing it again goes back to random");
+        g.run(Action::SeedToday);
+        g.run(Action::NewYes);
+        assert_eq!(g.seed.to_string(), today);
+    }
+
+    #[test]
     fn a_seed_deals_the_same_board_again() {
         let mut g = test_game();
         g.set_board(2, Some(4217));
         let first = g.faces.clone();
-        assert_eq!(g.board_name(), format!("{} #004217", board::LAYOUTS[2].name));
+        assert_eq!(g.board_name(), format!("{} #0000-42-17", board::LAYOUTS[2].name));
         g.set_layout(2);
         assert_ne!(g.faces, first, "a random seed deals a different board");
         g.set_board(2, Some(4217));
@@ -1929,13 +2002,15 @@ mod tests {
         let mut g = test_game();
         g.set_board(1, Some(77));
         let board = g.faces.clone();
-        // Typing: at most six digits; backspace deletes one.
+        // Typing: at most eight digits; backspace deletes one.
         g.run(Action::New);
-        for d in [1, 2, 3, 4, 5, 6, 7] {
+        for d in [1, 2, 3, 4, 5, 6, 7, 8, 9] {
             g.run(Action::SeedDigit(d));
         }
-        assert_eq!(g.seed_entry, "123456");
-        g.run(Action::SeedBack);
+        assert_eq!(g.seed_entry, "12345678");
+        for _ in 0..3 {
+            g.run(Action::SeedBack);
+        }
         assert_eq!(g.dialog().unwrap().seed, "12345");
         g.run(Action::NewYes);
         assert_eq!((g.layout, g.seed, g.seed_entry.as_str()), (1, 12345, ""));
@@ -1943,7 +2018,7 @@ mod tests {
         g.run(Action::New);
         g.run(Action::LayoutNext);
         g.run(Action::SeedReplay);
-        assert_eq!((g.picker, g.seed_entry.as_str()), (Some(1), "012345"));
+        assert_eq!((g.picker, g.seed_entry.as_str()), (Some(1), "00012345"));
         // Pressing it again goes back to a random seed.
         g.run(Action::SeedReplay);
         assert_eq!(g.seed_entry, "");
@@ -1984,7 +2059,7 @@ mod tests {
         let d = g.dialog().unwrap();
         let (x, y, w, h) = d.rect();
         let bs = d.layout_buttons();
-        assert_eq!(bs.len(), 5);
+        assert_eq!(bs.len(), 6);
         for (k, b) in bs.iter().enumerate() {
             let (bx, by, bw, bh) = b.hit;
             assert!(bx >= x && by >= y && bx + bw <= x + w && by + bh <= y + h, "{} sticks out", b.label);
